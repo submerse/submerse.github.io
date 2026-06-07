@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU-Passthrough Virtualization Lab // HANDLE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 02 · systems &amp; virtualization</div>
+      <h1>GPU-Passthrough Virtualization Lab</h1>
+      <div class="meta"><span>KVM/QEMU</span><span>VFIO</span><span>IOMMU</span><span>Linux</span><span>isolation</span></div>
+    </header>
+
+    <h2>Overview</h2>
+    <p>I built a Linux host running KVM/QEMU with a dedicated GPU passed straight through
+      to a virtual machine, giving the guest near-native graphics performance while staying
+      fully isolated from the host. The project was about understanding hardware
+      virtualization, device isolation, and building a disposable environment for malware
+      and reverse-engineering work.</p>
+
+    <h2>What it involved</h2>
+    <ul>
+      <li><strong>IOMMU &amp; VFIO:</strong> enabled IOMMU, inspected IOMMU groups, and bound the GPU to the <code>vfio-pci</code> driver so the host released it cleanly at boot.</li>
+      <li><strong>Guest configuration:</strong> configured the QEMU/libvirt domain with the passed-through GPU, CPU pinning, and hugepages for stable performance.</li>
+      <li><strong>Isolation goals:</strong> a snapshot-based, network-segmented guest I can revert — a safe place to detonate samples and run RE tooling without touching the host.</li>
+      <li><strong>Troubleshooting:</strong> worked through the usual passthrough pain — group splitting, vendor-reset quirks, and getting the host to hand off the device.</li>
+    </ul>
+
+    <h2>Walkthrough</h2>
+    <p>Optional screen recording of the build / the VM booting with the passed-through GPU:</p>
+    <!-- EMBED: unlisted YouTube. Delete this block if you'd rather keep it text-only. -->
+    <div class="video"><iframe src="https://www.youtube.com/embed/VIDEO_ID" title="GPU passthrough walkthrough" allowfullscreen></iframe></div>
+    <p class="vid-cap">fig. guest booting with the dedicated GPU bound via VFIO</p>
+
+    <h2>How it maps to security work</h2>
+    <p>Isolated, revertible VMs are the backbone of any <strong>malware analysis</strong> or
+      <strong>detonation lab</strong>, and the underlying concepts — device isolation, IOMMU,
+      hypervisor configuration, network segmentation — are core to understanding both
+      virtualization security and how analysts safely study hostile code. It also demonstrates
+      comfort with Linux internals and hardware-level configuration.</p>
+
+    <div class="note"><p><strong>Note.</strong> Built and run entirely on hardware I own, as a
+      personal lab environment for learning systems and security tooling.</p></div>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+</body>
+</html>
