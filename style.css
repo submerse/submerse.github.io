@@ -1,0 +1,140 @@
+/* ============================================================
+   SHARED STYLESHEET  —  portfolio.css
+   Recolor everything from the :root block below.
+   Linked as  style.css  (root pages)  /  ../style.css  (project pages)
+   ============================================================ */
+:root{
+  /* ---- Nord palette ---- */
+  --bg:#2e3440;            /* nord0  — Polar Night base   */
+  --bg-card:#3b4252;       /* nord1  — elevated surface   */
+  --bg-card-hover:#434c5e; /* nord2  — hover surface      */
+  --line:#4c566a;          /* nord3  — borders / dividers */
+  --text:#eceff4;          /* nord6  — Snow Storm (bright)*/
+  --text-dim:#d8dee9;      /* nord4  — body text          */
+  --text-faint:#616e88;    /* muted blue-grey labels      */
+  --accent:#88c0d0;        /* nord8  — Frost cyan (accent)*/
+  --accent-dim:#81a1c1;    /* nord9  — Frost blue (dim)   */
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);color:var(--text);font-family:var(--sans);
+  line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+/* atmosphere: faint scanlines + top glow */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.035;
+  background-image:repeating-linear-gradient(0deg,#fff 0 1px,transparent 1px 3px)}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.5;
+  background:radial-gradient(120% 80% at 50% -10%,rgba(136,192,208,.08),transparent 60%)}
+
+.wrap{max-width:1080px;margin:0 auto;padding:0 28px;position:relative;z-index:2}
+.wrap.narrow{max-width:780px}
+
+/* ---------- nav ---------- */
+nav{display:flex;justify-content:space-between;align-items:center;
+  padding:26px 0;font-family:var(--mono);font-size:14px}
+nav .logo{color:var(--accent);font-weight:600;letter-spacing:.5px}
+nav a{color:var(--text-dim);text-decoration:none;transition:color .2s}
+nav a:hover{color:var(--text)}
+nav .links a{margin-left:24px}
+nav .links a:hover{color:var(--text)}
+@media(max-width:560px){nav .links a{margin-left:16px;font-size:13px}}
+
+/* ---------- hero (landing) ---------- */
+.hero{padding:90px 0 70px}
+.hero .tag,.tag{font-family:var(--mono);color:var(--accent);font-size:13px;
+  letter-spacing:2px;text-transform:uppercase;margin-bottom:22px}
+.hero h1{font-family:var(--mono);font-weight:600;font-size:clamp(34px,6vw,62px);
+  line-height:1.05;letter-spacing:-1px;margin-bottom:24px}
+.hero h1 .blink{color:var(--accent);animation:blink 1.2s steps(2,start) infinite}
+@keyframes blink{to{visibility:hidden}}
+.hero p.lede{font-size:clamp(16px,2vw,19px);color:var(--text-dim);max-width:620px;margin-bottom:34px}
+.cta a{font-family:var(--mono);font-size:14px;text-decoration:none;padding:11px 18px;
+  border:1px solid var(--line);border-radius:6px;color:var(--text);margin-right:12px;
+  display:inline-block;margin-bottom:10px;transition:border-color .2s,color .2s,transform .15s}
+.cta a.primary{border-color:var(--accent-dim);color:var(--accent)}
+.cta a:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-2px)}
+
+/* ---------- sections ---------- */
+section{padding:56px 0;border-top:1px solid var(--line)}
+.sec-label{font-family:var(--mono);color:var(--text-faint);font-size:13px;letter-spacing:1px;margin-bottom:8px}
+.sec-label::before{content:"// "}
+h2{font-family:var(--mono);font-weight:600;font-size:26px;margin-bottom:28px;letter-spacing:-.5px}
+
+/* ---------- about / prose ---------- */
+.about p{color:var(--text-dim);max-width:680px;font-size:16.5px}
+.about p+p{margin-top:16px}
+
+/* ---------- skills ---------- */
+.skills{display:flex;flex-wrap:wrap;gap:10px}
+.skills span{font-family:var(--mono);font-size:13px;color:var(--text-dim);
+  border:1px solid var(--line);border-radius:5px;padding:7px 12px;transition:border-color .2s,color .2s}
+.skills span:hover{border-color:var(--accent-dim);color:var(--text)}
+
+/* ---------- project grid (landing) ---------- */
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+.card{display:block;text-decoration:none;color:inherit;background:var(--bg-card);
+  border:1px solid var(--line);border-radius:10px;padding:26px;position:relative;overflow:hidden;
+  transition:background .2s,border-color .2s,transform .2s}
+.card:hover{background:var(--bg-card-hover);border-color:var(--accent-dim);transform:translateY(-3px)}
+.card .idx{font-family:var(--mono);font-size:12px;color:var(--text-faint)}
+.card h3{font-family:var(--mono);font-size:18px;font-weight:600;margin:10px 0 10px}
+.card p{color:var(--text-dim);font-size:14.5px}
+.card .stack{margin-top:16px;display:flex;flex-wrap:wrap;gap:6px}
+.card .stack span{font-family:var(--mono);font-size:11.5px;color:var(--accent-dim);
+  border:1px solid var(--line);border-radius:4px;padding:3px 7px}
+.card .arrow{position:absolute;top:24px;right:24px;color:var(--text-faint);font-family:var(--mono);
+  transition:color .2s,transform .2s}
+.card:hover .arrow{color:var(--accent);transform:translate(3px,-3px)}
+
+/* ============================================================
+   PROJECT (document) PAGES  — wrap content in <article class="doc">
+   ============================================================ */
+.doc header{padding:40px 0 30px}
+.doc h1{font-family:var(--mono);font-weight:600;font-size:clamp(28px,5vw,42px);
+  line-height:1.1;letter-spacing:-.5px;margin-bottom:18px}
+.doc .meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.doc .meta span{font-family:var(--mono);font-size:12px;color:var(--accent-dim);
+  border:1px solid var(--line);border-radius:4px;padding:4px 9px}
+.doc h2{font-family:var(--mono);font-weight:600;font-size:21px;margin:44px 0 16px;letter-spacing:-.3px}
+.doc h2::before{content:"// ";color:var(--text-faint)}
+.doc p{color:var(--text-dim);font-size:16.5px;margin-bottom:16px;line-height:1.7}
+.doc ul{color:var(--text-dim);font-size:16.5px;margin:0 0 16px 22px;line-height:1.7}
+.doc li{margin-bottom:9px}
+.doc strong{color:var(--text);font-weight:600}
+.doc code{font-family:var(--mono);font-size:14px;background:var(--bg-card);
+  border:1px solid var(--line);border-radius:4px;padding:2px 6px;color:var(--accent)}
+.doc pre{background:var(--bg-card);border:1px solid var(--line);border-radius:8px;padding:18px;
+  overflow-x:auto;margin:0 0 16px;font-family:var(--mono);font-size:13.5px;color:var(--text-dim);line-height:1.6}
+
+/* responsive 16:9 video embed + caption */
+.video{position:relative;width:100%;padding-top:56.25%;border:1px solid var(--line);
+  border-radius:8px;overflow:hidden;margin:8px 0 6px}
+.video iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.vid-cap{font-family:var(--mono);font-size:13px;color:var(--text-faint);margin:0 0 26px}
+
+/* screenshot grid (e.g. geoguessr guesses) */
+.shots{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:8px 0 20px}
+@media(max-width:560px){.shots{grid-template-columns:1fr}}
+.shots figure{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg-card)}
+.shots img{width:100%;display:block}
+.shots figcaption{font-family:var(--mono);font-size:12.5px;color:var(--text-dim);padding:10px 12px}
+
+/* callout note */
+.note{border-left:2px solid var(--accent-dim);background:var(--bg-card);
+  padding:16px 18px;border-radius:0 8px 8px 0;margin:24px 0}
+.note p{margin:0;font-size:15px}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line);padding:40px 0 60px;
+  font-family:var(--mono);font-size:13px;color:var(--text-faint)}
+footer a{color:var(--text-dim);text-decoration:none}
+footer a:hover{color:var(--accent)}
+
+/* ---------- entrance animation ---------- */
+.reveal{opacity:0;transform:translateY(16px);animation:rise .6s ease forwards}
+@keyframes rise{to{opacity:1;transform:none}}
+.d1{animation-delay:.05s}.d2{animation-delay:.15s}.d3{animation-delay:.25s}.d4{animation-delay:.35s}
