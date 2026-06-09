@@ -44,8 +44,22 @@
     </ul>
 
     <h2>The engineering</h2>
-    <p>The model runs on <code>llama.cpp</code>'s server, built from source, with the configuration
-      chosen to fit a large model on one GPU while keeping throughput usable:</p>
+    <p>The model runs on <code>llama.cpp</code>'s server, built from source. The launch command is the
+      whole config in one place:</p>
+    <pre>#!/bin/bash
+cd ~/llama.cpp/build/bin || exit
+
+./llama-server \
+  -m ~/models/Dolphin-Mistral-24B-Venice-Edition.Q6_K.gguf \
+  -ngl 999 \
+  --ctx-size 32768 \
+  --batch-size 512 \
+  --ubatch-size 64 \
+  --cache-type-k q8_0 \
+  --cache-type-v q8_0 \
+  --host 0.0.0.0 \
+  --port 8080</pre>
+    <p>Each flag is a deliberate choice to fit a large model on one GPU while keeping throughput usable:</p>
     <table class="specs">
       <tr><td>Engine</td><td>llama.cpp <code>llama-server</code>, compiled from source</td></tr>
       <tr><td>Model</td><td>Dolphin-Mistral-24B (Venice Edition) — an uncensored/abliterated model, run locally on purpose (see below)</td></tr>
