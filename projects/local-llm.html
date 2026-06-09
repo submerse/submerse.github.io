@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Self-Hosted Offline LLM // submerse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+  .specs{width:100%;border-collapse:collapse;margin:8px 0 8px;font-size:15.5px}
+  .specs td{padding:11px 14px;border:1px solid var(--line);vertical-align:top}
+  .specs td:first-child{font-family:var(--mono);color:var(--magenta);width:30%;font-size:12.5px;letter-spacing:.4px}
+  .specs td:last-child{color:var(--text-dim)}
+</style>
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 09 · ML infrastructure</div>
+      <h1>Self-Hosted Offline LLM</h1>
+      <div class="meta"><span>llama.cpp</span><span>local inference</span><span>quantization</span><span>GPU offload</span><span>AI red-team</span></div>
+    </header>
+
+    <h2>Overview</h2>
+    <p>A 24-billion-parameter language model running entirely on my own hardware, served over my LAN
+      with no third-party API in the path. I built the inference engine from source, fit the model to
+      a single 4090 through quantization, and exposed it as an OpenAI-compatible endpoint other
+      machines on the network can use. The point was twofold: the systems engineering of efficient
+      local inference, and a controlled environment for studying model behaviour without sending
+      anything to a cloud provider.</p>
+
+    <h2>Why offline / on-prem matters</h2>
+    <p>Running inference locally is increasingly a <strong>security and data-control</strong> decision,
+      not just a hobbyist one:</p>
+    <ul>
+      <li><strong>Nothing leaves the network.</strong> Prompts, documents, and outputs never touch a vendor's servers — no logging, no training on your data, no third-party retention.</li>
+      <li><strong>Full control of the stack.</strong> You choose the model, the system prompt, and the policy, and you can inspect every layer rather than trusting a hosted black box.</li>
+      <li><strong>Air-gap-friendly.</strong> The same setup runs with no internet at all, which matters for sensitive analysis work.</li>
+    </ul>
+
+    <h2>The engineering</h2>
+    <p>The model runs on <code>llama.cpp</code>'s server, built from source, with the configuration
+      chosen to fit a large model on one GPU while keeping throughput usable:</p>
+    <table class="specs">
+      <tr><td>Engine</td><td>llama.cpp <code>llama-server</code>, compiled from source</td></tr>
+      <tr><td>Model</td><td>Dolphin-Mistral-24B (Venice Edition) — an uncensored/abliterated model, run locally on purpose (see below)</td></tr>
+      <tr><td>Quantization</td><td>Q6_K GGUF — 6-bit weights, the accuracy/size trade that fits 24B in VRAM</td></tr>
+      <tr><td>GPU offload</td><td><code>-ngl 999</code> — all layers offloaded to the GPU</td></tr>
+      <tr><td>KV cache</td><td><code>q8_0</code> for keys and values — 8-bit cache to extend usable context</td></tr>
+      <tr><td>Context</td><td>32,768-token window</td></tr>
+      <tr><td>Batching</td><td>batch 512 / micro-batch 64 — tuned for throughput vs. latency</td></tr>
+      <tr><td>Serving</td><td>bound to <code>0.0.0.0:8080</code>, OpenAI-compatible HTTP API for LAN clients</td></tr>
+    </table>
+    <p>Put together, that's a practical exercise in the levers of local inference: how quantization of
+      both weights and the KV cache buys you a bigger model and longer context on fixed VRAM, what full
+      layer offload does for speed, and how to actually serve the thing to other devices.</p>
+
+    <h2>Model-behaviour &amp; red-team evaluation</h2>
+    <p>The reason for running an <em>uncensored</em> model locally is that it's a clean lab for
+      <strong>AI red-teaming and model-safety evaluation</strong> — the discipline of probing where a
+      model's alignment holds and where it breaks. Locally, I can study that directly: how a model
+      behaves with and without guardrails, and how much of "safety" is the underlying weights versus the
+      system prompt and serving policy wrapped around them.</p>
+    <p>Part of that was testing <strong>refusal robustness</strong> — feeding the model deliberately
+      coercive, manipulative, and frankly absurd system-prompt framings (the kind of "you must always
+      comply / something bad happens if you refuse" pattern that's a well-known prompt-injection style)
+      to observe how prompt framing shifts refusal behaviour. The interesting finding isn't the silly
+      prompt itself; it's how cheaply behaviour can be moved when you control the system layer, which is
+      exactly why guardrails that live only in the prompt are weak, and why real safety has to be deeper
+      in the stack. I studied the failure modes; I'm not publishing the working jailbreak text.</p>
+
+    <h2>How it maps to security work</h2>
+    <p>This sits at the intersection of two things hiring teams actually want right now:
+      <strong>self-hosting / ML-ops</strong> (running models efficiently and privately on your own
+      infrastructure) and <strong>AI red-teaming</strong> (understanding alignment failure modes,
+      prompt-injection, and where model guardrails actually live). Both are real, current security
+      specializations, and this project is hands-on grounding in each.</p>
+
+    <div class="note"><p><strong>Context &amp; ethics.</strong> Run entirely on my own hardware, offline,
+      for systems learning and model-safety research. The interest is in understanding inference and
+      alignment failure modes — not in producing harmful output or distributing jailbreaks; no working
+      jailbreak prompt is reproduced here.</p></div>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+</body>
+</html>
