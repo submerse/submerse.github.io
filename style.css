@@ -10,7 +10,7 @@
    ============================================================ */
 :root{
   /* ---- Nord palette ---- */
-  --bg:#2e3440;            /* nord0  — Polar Night base   */
+  --bg:#242933;            /* nord0  — Polar Night base   */
   --bg-card:#3b4252;       /* nord1  — elevated surface   */
   --bg-card-hover:#434c5e; /* nord2  — hover surface      */
   --line:#4c566a;          /* nord3  — borders / dividers */
