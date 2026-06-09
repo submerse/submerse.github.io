@@ -145,7 +145,7 @@ footer a:hover{color:var(--accent)}
 @keyframes rise{to{opacity:1;transform:none}}
 .d1{animation-delay:.05s}.d2{animation-delay:.15s}.d3{animation-delay:.25s}.d4{animation-delay:.35s}
 
-.geo-link:link    { color: #88C0D0; }  /* nord8  — unvisited */
-.geo-link:visited { color: #81A1C1; }  /* nord9  — already clicked */
-.geo-link:hover   { color: #8FBCBB; }  /* mouse over */
-.geo-link:active  { color: #5E81AC; }  /* mid-click */
+.doc a:link    { color: #88C0D0; }  /* nord8 */
+.doc a:visited { color: #81A1C1; }  /* nord9 */
+.doc a:hover   { color: #8FBCBB; }
+.doc a:active  { color: #5E81AC; }
