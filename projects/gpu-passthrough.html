@@ -90,6 +90,44 @@ echo "Done — 4090 returned to host"</pre>
       VM itself starts as the regular user to keep PulseAudio audio; and the script blocks on VM state
       so the card is only reclaimed once the guest has fully powered off.</p>
 
+    <p>The low-level work is done by the small root helper it calls, <code>vfio-bind.sh</code>. This is
+      where the actual driver swap happens — note it handles <em>both</em> PCI functions of the card
+      (the GPU at <code>.0</code> and its HDMI-audio device at <code>.1</code>, which share an IOMMU
+      group and must move together), unbinding from the NVIDIA driver, overriding to
+      <code>vfio-pci</code>, and reversing the whole thing on the way back to the host:</p>
+    <pre>#!/bin/bash
+GPU_IDS=("0000:01:00.0" "0000:01:00.1")   # GPU + its HDMI-audio function
+NVIDIA_DRIVER="nvidia"
+
+bind_vfio() {
+    for id in "${GPU_IDS[@]}"; do
+        if [ -e /sys/bus/pci/devices/$id/driver ]; then
+            echo $id &gt; /sys/bus/pci/devices/$id/driver/unbind
+        fi
+        echo "vfio-pci" &gt; /sys/bus/pci/devices/$id/driver_override
+        echo $id &gt; /sys/bus/pci/drivers/vfio-pci/bind
+    done
+}
+
+unbind_vfio() {
+    for id in "${GPU_IDS[@]}"; do
+        echo "" &gt; /sys/bus/pci/devices/$id/driver_override
+        if [ -e /sys/bus/pci/devices/$id/driver ]; then
+            echo $id &gt; /sys/bus/pci/devices/$id/driver/unbind
+        fi
+        echo $id &gt; /sys/bus/pci/drivers/$NVIDIA_DRIVER/bind
+    done
+}
+
+case "$1" in
+    bind)   bind_vfio ;;
+    unbind) unbind_vfio ;;
+esac</pre>
+    <p>Driving the rebind manually through sysfs (<code>driver_override</code> plus explicit
+      unbind/bind) rather than relying on boot-time driver blacklisting is what makes the on-demand
+      handoff possible — the GPU is never claimed by VFIO until this runs, and is handed straight back
+      to the <code>nvidia</code> driver afterwards.</p>
+
 
     <p>Optional screen recording of the build / the VM booting with the passed-through GPU:</p>
     <!-- EMBED: unlisted YouTube. Delete this block if you'd rather keep it text-only. -->
