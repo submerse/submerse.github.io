@@ -58,6 +58,17 @@
       its observable fingerprints, attackers adjust the fingerprint, and the signal of last resort
       keeps shifting toward behaviour, which is far harder to fake convincingly than a device ID.</p>
 
+    <h2>Proof of concept</h2>
+    <p>To ground the analysis in practice rather than only theory, I built and bench-tested an
+      end-to-end proof of concept — the microcontroller-and-host-shield input path driven by
+      screen-side detection — evaluated strictly against bots in an offline environment. The
+      educational value was in the <em>interfacing</em>: bridging a real-time screen-analysis
+      pipeline, a serial protocol, and a physical HID peripheral into one working closed loop, and
+      handling the coordinate translation and timing between the software and the hardware device.
+      That's the transferable skill the project demonstrates — taking a system from idea to working
+      hardware/software integration and verifying it empirically, which is how you reason credibly
+      about a technique instead of guessing at it.</p>
+
     <h2>What I took from it</h2>
     <p>The point of the project was to understand, at the hardware/software boundary, why
       "it looks like a real mouse" defeats device-layer checks and forces detection up the stack into
@@ -68,11 +79,12 @@
       <li><strong>The trusted-client lesson</strong> — anything the client reports can be spoofed, so high-assurance detection ends up behavioural and server-side. That principle shows up everywhere from anti-cheat to EDR to fraud.</li>
     </ul>
 
-    <div class="note"><p><strong>Context &amp; ethics.</strong> A personal research project focused on the
-      detection problem — how anti-cheat development identifies hardware-emulated input — studied on
-      my own equipment against bots / offline targets only. It was not used against live players or
-      distributed. This page documents the defender-side analysis and the public state of the
-      Vanguard arms race; it is not a build guide and no tooling is published here.</p></div>
+    <div class="note"><p><strong>Context &amp; ethics.</strong> A personal project for educational and
+      research purposes only, focused on the detection problem — how anti-cheat development identifies
+      hardware-emulated input — studied on my own equipment against bots / offline targets only. It was
+      not used against live players or distributed. This page documents the defender-side analysis, the
+      hardware/software interfacing involved, and the public state of the Vanguard arms race; it is not
+      a build guide and no tooling is published here.</p></div>
   </article>
 
   <footer>← <a href="../index.html">back to all projects</a></footer>
