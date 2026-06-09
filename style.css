@@ -30,7 +30,7 @@ body{
   line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden;
 }
 /* atmosphere: faint scanlines + top frost glow */
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.035;
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.015;
   background-image:repeating-linear-gradient(0deg,#fff 0 1px,transparent 1px 3px)}
 body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.6;
   background:radial-gradient(120% 80% at 50% -10%,rgba(136,192,208,.10),transparent 60%)}
