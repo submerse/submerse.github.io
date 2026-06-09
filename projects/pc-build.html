@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Custom Workstation Build // submerse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+  /* spec table for this page */
+  .specs{width:100%;border-collapse:collapse;margin:8px 0 8px;font-size:15.5px}
+  .specs td{padding:11px 14px;border:1px solid var(--line);vertical-align:top}
+  .specs td:first-child{font-family:var(--mono);color:var(--magenta);width:34%;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  .specs td:last-child{color:var(--text-dim)}
+</style>
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 08 · systems &amp; hardware</div>
+      <h1>Custom Workstation Build</h1>
+      <div class="meta"><span>hardware</span><span>assembly</span><span>thermals</span><span>Ryzen</span><span>workstation</span></div>
+    </header>
+
+    <h2>Overview</h2>
+    <p>A high-end gaming and workhorse machine I planned, sourced, and assembled from scratch — every
+      component chosen for compatibility, thermals, and the kind of sustained load my other projects
+      throw at it (ML inference, VMs, GPU-passthrough labs). It doubles as the rig the rest of this
+      portfolio is built and tested on.</p>
+
+    <h2>Specs</h2>
+    <table class="specs">
+      <tr><td>CPU</td><td>AMD Ryzen 9 9950X3D — 16-core, 3D V-Cache</td></tr>
+      <tr><td>GPU</td><td>GIGABYTE GeForce RTX 4090 (vertically mounted)</td></tr>
+      <tr><td>Motherboard</td><td>ASUS TUF Gaming B650-Plus WiFi</td></tr>
+      <tr><td>Memory</td><td>G.Skill 32 GB DDR5-6400</td></tr>
+      <tr><td>Cooling</td><td>Lian Li 360 mm AIO (LCD pump head) + 7 sets of fans</td></tr>
+      <tr><td>Case</td><td>Lian Li dual-chamber chassis</td></tr>
+    </table>
+
+    <h2>Gallery</h2>
+    <div class="shots">
+      <figure>
+        <img src="img/IMG_20260607_184031_493.jpg" alt="Completed build with RGB lighting">
+        <figcaption>Finished build — vertical 4090, AIO pump LCD reading water temp.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/IMG_20260607_154826_905.jpg" alt="Build with lighting off">
+        <figcaption>Lights off — the three-chamber airflow layout and cable routing.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/IMG_20260607_154840_134.jpg" alt="Front view of the build">
+        <figcaption>Front profile — radiator up top, intake stack below.</figcaption>
+      </figure>
+    </div>
+
+    <h2>What went into it</h2>
+    <ul>
+      <li><strong>Component selection:</strong> matching CPU, board, memory and cooling for compatibility and headroom — VRM/board choice for the 9950X3D, DDR5-6400 on the QVL, and a 360 mm AIO sized to the chassis.</li>
+      <li><strong>Thermal &amp; airflow planning:</strong> laying out seven fan positions into a coherent intake/exhaust path, with the radiator and GPU placed to keep the 4090 fed with cool air under load.</li>
+      <li><strong>Assembly &amp; cable management:</strong> full build from bare case — standoffs, mounting, vertical GPU riser, AIO install, and routing for a clean back-chamber.</li>
+      <li><strong>Bring-up &amp; validation:</strong> first boot, BIOS/EXPO memory configuration, and thermal/stability testing under sustained CPU and GPU load to confirm the cooling holds.</li>
+    </ul>
+
+    <h2>Why it's here</h2>
+    <p>Beyond being a personal build, it's the foundation the rest of my work runs on — the host for the
+      GPU-passthrough lab, the compute behind the computer-vision and ML experiments, and a practical
+      grounding in PC hardware, thermals, and systems assembly that complements the software side of
+      everything else in this portfolio.</p>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+</body>
+</html>
