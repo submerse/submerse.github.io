@@ -705,5 +705,24 @@ start devmgmt.msc
 
   <footer>← <a href="../index.html">back to all projects</a></footer>
 </div>
+
+  <script>
+  (function(){
+    var lb = document.getElementById('lightbox');
+    var lbImg = document.getElementById('lightbox-img');
+    document.querySelectorAll('.shots img').forEach(function(img){
+      img.addEventListener('click', function(){
+        lbImg.src = img.src;
+        lbImg.alt = img.alt;
+        lb.classList.add('open');
+      });
+    });
+    lb.addEventListener('click', function(){ lb.classList.remove('open'); });
+    document.addEventListener('keydown', function(e){
+      if(e.key === 'Escape') lb.classList.remove('open');
+    });
+  })();
+</script>
+  
 </body>
 </html>
