@@ -26,6 +26,14 @@
   .severity-low{color:#88c0d0;font-size:12px}
   .label{font-family:var(--mono);font-size:11px;color:var(--magenta);letter-spacing:1px;
     text-transform:uppercase;margin:28px 0 6px;display:block}
+  .shots img{cursor:zoom-in}
+  .lightbox{position:fixed;inset:0;z-index:999;display:none;
+    background:rgba(10,12,16,.92);align-items:center;justify-content:center;cursor:zoom-out}
+  .lightbox.open{display:flex}
+  .lightbox img{max-width:92vw;max-height:92vh;border:1px solid var(--line);border-radius:8px}
+  .lightbox .x{position:absolute;top:18px;right:24px;font-family:var(--mono);
+    font-size:26px;color:var(--text-dim);cursor:pointer;line-height:1}
+  .lightbox .x:hover{color:var(--accent)}
 </style>
 </head>
 <body>
@@ -573,22 +581,22 @@ start devmgmt.msc
     <div class="shots">
       <figure>
         <!-- REPLACE: screenshot of msinfo32 showing ASUSTeK / ROG CROSSHAIR board -->
-        <img src="img/al-khaser_VM_detection_red_flag.PNG" alt="msinfo32 showing spoofed ASUS board identity"/>
+        <img src="img/vm-msinfo32.png" alt="msinfo32 showing spoofed ASUS board identity"/>
         <figcaption>fig. 1 — msinfo32: guest reports ASUSTeK ROG CROSSHAIR X670E HERO</figcaption>
       </figure>
       <figure>
         <!-- REPLACE: screenshot of a game running with EAC active (no ban/flag) -->
-        <img src="img/final_flag_done_al_khaser.PNG" alt="EAC-protected game running in VM"/>
+        <img src="img/vm-eac-ingame.png" alt="EAC-protected game running in VM"/>
         <figcaption>fig. 2 — EAC-protected title running cleanly in the VM</figcaption>
       </figure>
       <figure>
         <!-- REPLACE: screenshot of AIDA64 ACPI showing ALASKA/AMI OEM strings -->
-        <img src="img/device_manager.PNG" alt="AIDA64 ACPI showing ALASKA OEM ID"/>
+        <img src="img/vm-acpi-oem.png" alt="AIDA64 ACPI showing ALASKA OEM ID"/>
         <figcaption>fig. 3 — AIDA64: ACPI tables reporting ALASKA / A M I OEM strings</figcaption>
       </figure>
       <figure>
         <!-- REPLACE: screenshot of wmic disk/NIC output showing WDC + Intel MAC -->
-        <img src="img/system_manager.png" alt="wmic output showing WDC disk and Intel NIC"/>
+        <img src="img/vm-wmic-hw.png" alt="wmic output showing WDC disk and Intel NIC"/>
         <figcaption>fig. 4 — wmic: WDC disk model, WD serial, Intel NIC — no QEMU strings</figcaption>
       </figure>
     </div>
@@ -705,14 +713,11 @@ start devmgmt.msc
 
   <footer>← <a href="../index.html">back to all projects</a></footer>
 </div>
-
-  </div>
-  <div class="lightbox" id="lightbox">
+<div class="lightbox" id="lightbox">
   <span class="x">✕</span>
   <img id="lightbox-img" src="" alt="">
 </div>
-
-  <script>
+<script>
   (function(){
     var lb = document.getElementById('lightbox');
     var lbImg = document.getElementById('lightbox-img');
@@ -729,6 +734,5 @@ start devmgmt.msc
     });
   })();
 </script>
-  
 </body>
 </html>
