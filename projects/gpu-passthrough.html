@@ -71,15 +71,14 @@
       card is freed back to the host — available for LLM inference (llama-server), CUDA workloads, or
       simply driving the host's own display directly. Switching the monitor input to the 4090 output at
       that point gives a noticeably smoother desktop experience compared to the iGPU: higher refresh,
-      better colour output, and the full GPU available for any host-side rendering. Three distinct
+      better colour output, and the full GPU available for any host-side rendering. Two distinct
       modes, all without a reboot:</p>
     <ul>
       <li><strong>VM active:</strong> iGPU → host display &nbsp;|&nbsp; RTX 4090 → Windows guest at
         bare-metal performance</li>
-      <li><strong>VM off, GPU on host:</strong> 4090 freed for llama-server / CUDA inference on Arch,
-        iGPU still driving the host screen</li>
-      <li><strong>VM off, full display:</strong> monitor switched to 4090 output — silky smooth
-        host desktop with the full card available for rendering</li>
+      <li><strong>VM off, GPU on host:</strong> 4090 freed for llama-server / CUDA inference on Arch and
+        silky smooth host desktop with the full card available for rendering
+        </li>
     </ul>
 
     <h3>Step 1 — Enable IOMMU</h3>
