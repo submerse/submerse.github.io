@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Count3rbalanc3 — Screen-Based Triggerbot Writeup</title>
+  <link rel="stylesheet" href="../style.css" />
+  <style>
+    table { width:100%; border-collapse:collapse; margin:12px 0 20px; font-family:var(--mono); font-size:13.5px; }
+    th { text-align:left; color:var(--accent); border-bottom:2px solid var(--line); padding:8px 10px; }
+    td { color:var(--text-dim); border-bottom:1px solid var(--line); padding:7px 10px; }
+    tr:nth-child(even) td { background:var(--bg-card); }
+    .stack-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:14px; margin:12px 0 20px; }
+    .stack-card { background:var(--bg-card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
+    .stack-card .lib { font-family:var(--mono); color:var(--magenta); font-size:0.95rem; font-weight:bold; margin-bottom:4px; }
+    .stack-card .desc { font-family:var(--sans); color:var(--text-faint); font-size:0.82rem; }
+  </style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav>
+    <span class="logo">submerse</span>
+    <div class="links">
+      <a href="../index.html">home</a>
+      <a href="../index.html#projects">projects</a>
+    </div>
+  </nav>
+</div>
+
+<div class="wrap narrow doc">
+
+  <header>
+    <div class="tag">project writeup</div>
+    <h1>Count3rbalanc3</h1>
+    <div class="meta">
+      <span>Python</span>
+      <span>Valorant</span>
+      <span>Color Detection</span>
+      <span>Anti-Cheat Research</span>
+      <span>License System</span>
+      <span>tkinter</span>
+    </div>
+  </header>
+
+  <!-- OVERVIEW -->
+  <h2>Overview</h2>
+  <p>
+    <strong>Count3rbalanc3</strong> is a fully-featured, commercially distributed color-based triggerbot built in Python,
+    targeting first-person shooter games — primarily <strong>Valorant</strong>, as confirmed by its eight built-in weapon
+    presets (Marshal, Outlaw, AWP, Chamber Ult, Sheriff, Deagle, Operator, Guardian). The application is named
+    <code>gui50.py</code>, indicating it is the fiftieth GUI iteration of an evolving codebase, reflecting extensive
+    incremental development over a long period.
+  </p>
+  <p>
+    Beyond its function as a game tool, the project serves as a practical case study in
+    <strong>screen-capture-based detection evasion</strong> — a research domain that exposes a fundamental blind spot in
+    kernel-level anti-cheat systems. The tool operates entirely through standard OS APIs, making it indistinguishable at
+    the system level from legitimate software such as accessibility tools or screen recorders.
+  </p>
+  <div class="note">
+    <p>"From the operating system's point of view it's a program taking screenshots and pressing a key — activity that is
+    indistinguishable from legitimate software."</p>
+  </div>
+
+  <!-- CORE CONCEPT -->
+  <h2>Core Concept</h2>
+  <p>
+    Traditional game cheats work by reading or writing to game memory — injecting DLLs, hooking system calls, or
+    manipulating rendering pipelines. Anti-cheat software like Vanguard (Valorant), VAC (CS2), and EAC (various titles)
+    specifically targets these vectors through kernel-level drivers, integrity checks, and signature scanning.
+  </p>
+  <p>
+    Count3rbalanc3 sidesteps all of this by operating <em>outside the game process entirely</em>. It uses only:
+  </p>
+  <ul>
+    <li>Screen capture via <code>mss</code> — a standard OS screenshot API</li>
+    <li>NumPy pixel analysis — pure computation on captured image data</li>
+    <li>Synthetic key input via <code>pynput</code> — the same mechanism used by accessibility software and test automation</li>
+  </ul>
+  <p>
+    There is no memory reading, no code injection, no driver interaction, and no game process communication of any kind.
+    This means the entire attack surface that anti-cheat systems monitor is bypassed by design.
+  </p>
+  <div class="note">
+    <p>The research question this project implicitly investigates: <em>can anti-cheat systems reliably detect a cheat that
+    never touches the game?</em> The answer, as of current anti-cheat implementations, is: not easily.</p>
+  </div>
+
+  <!-- ARCHITECTURE -->
+  <h2>Architecture</h2>
+  <p>The application is structured around four main components that operate concurrently:</p>
+  <ul>
+    <li><strong>License Gate</strong> — runs once at startup, validates the user's license key against a remote Supabase backend before anything else launches.</li>
+    <li><strong>ColorTrigger</strong> — the core detection and input engine, running in a dedicated daemon thread. Continuously captures and analyzes a configurable screen region and injects key presses when conditions are met.</li>
+    <li><strong>tkinter GUI</strong> — the primary interface running on the main thread: sliders, dropdowns, preset management, session persistence.</li>
+    <li><strong>Overlay Windows</strong> — two always-on-top transparent windows updating via <code>after()</code> polling loops: one visualizing the scan region, one showing toggle state.</li>
+  </ul>
+  <p>
+    All components are non-blocking relative to each other. The capture loop runs on its own thread, overlays update
+    asynchronously, and the GUI remains responsive at all times.
+  </p>
+
+  <!-- TRIGGER ENGINE -->
+  <h2>Trigger Engine</h2>
+  <p>
+    The <code>ColorTrigger.run()</code> loop uses <code>mss</code> to capture a small rectangular region — the "grab zone"
+    — centered on the screen where the crosshair sits. The grab zone dimensions and offsets are all configurable via
+    sliders. The default is 10×10 pixels, deliberately small to minimize false positives and reduce CPU overhead.
+    Each captured frame is converted to a NumPy array for pixel-level processing.
+  </p>
+
+  <p><strong>Color Detection</strong></p>
+  <p>Two target colors are hardcoded as the detection targets:</p>
+  <pre><code>target_colors = [(255, 100, 255), (122, 15, 110)]
+# Bright magenta/pink and dark purple — enemy highlight colors in-game</code></pre>
+  <p>Two complementary methods run on every frame:</p>
+  <ul>
+    <li><strong><code>searcherino(img)</code></strong> — flattens the entire grab zone to a pixel array and checks whether any pixel falls within tolerance of either target color using vectorized NumPy operations.</li>
+    <li><strong><code>is_color_in_crosshair(img)</code></strong> — checks only the exact center pixel of the grab zone, providing a tighter, lower-latency confirmation for direct crosshair hits.</li>
+  </ul>
+  <p>Color matching applies a configurable tolerance (default: 33) symmetrically across each RGB channel:</p>
+  <pre><code>mask = (
+    (pixels[:, 0] > R - tol) & (pixels[:, 0] < R + tol) &
+    (pixels[:, 1] > G - tol) & (pixels[:, 1] < G + tol) &
+    (pixels[:, 2] > B - tol) & (pixels[:, 2] < B + tol)
+)</code></pre>
+
+  <p><strong>Input Injection</strong></p>
+  <p>When a color match is detected and all gate conditions pass, a key press is injected via <code>pynput</code>:</p>
+  <pre><code>self.keyboard_controller.press(resolve_key(key))
+self.keyboard_controller.release(resolve_key(key))</code></pre>
+  <p>
+    The key is user-configurable (default: <code>e</code>). A helper <code>resolve_key()</code> translates string names
+    like <code>'f9'</code>, <code>'space'</code>, or <code>'ctrl_l'</code> into <code>pynput</code> key constants,
+    covering the full range of special keys.
+  </p>
+
+  <p><strong>Gate Conditions</strong></p>
+  <p>The trigger only fires when all of the following are simultaneously satisfied:</p>
+  <table>
+    <tr><th>Condition</th><th>Default</th><th>Purpose</th></tr>
+    <tr><td>Activation key held or always-on active</td><td>Shift / F9 toggle</td><td>Prevents accidental triggers</td></tr>
+    <tr><td>Movement key delay not active</td><td>0 ms</td><td>Suppresses fire during WASD + N ms after release</td></tr>
+    <tr><td>Right-click delay elapsed</td><td>250 ms</td><td>Suppresses fire immediately after scoping in</td></tr>
+    <tr><td>Color detected in grab zone</td><td>—</td><td>Core detection condition</td></tr>
+  </table>
+  <p>
+    After a match, two optional delays run in sequence: a <strong>first shot delay</strong> before the keypress
+    (simulating human reaction lag) and a <strong>trigger delay</strong> after (preventing mechanical rapid fire).
+  </p>
+
+  <p><strong>Keyboard &amp; Mouse Listeners</strong></p>
+  <p>Two <code>pynput</code> listeners run as background threads:</p>
+  <ul>
+    <li><strong>Keyboard listener</strong> — tracks pressed keys for the activation key, toggle hotkey, preset hotkeys (F1–F8), and WASD movement state. Also binds number/function keys to directly update the "key to press" dropdown for quick in-game remapping.</li>
+    <li><strong>Mouse listener</strong> — detects right-click events and records the timestamp for the right-click delay gate.</li>
+  </ul>
+
+  <!-- GUI -->
+  <h2>GUI &amp; UX</h2>
+  <p>
+    The interface is built with <strong>tkinter</strong> styled in a <strong>Nord color scheme</strong> — the same palette
+    as this site. The window is 335×750 pixels, compact enough to sit alongside a game window or on a secondary monitor.
+  </p>
+  <p>
+    Nine sliders control core behavior. Each uses a custom <code>slider_row()</code> helper that wires together a
+    <code>ttk.Scale</code>, a live value label, and a <strong>double-click popup</strong> for entering exact numerical
+    values — a UX detail that reflects the 50-iteration polish of the codebase.
+  </p>
+  <table>
+    <tr><th>Slider</th><th>Range</th><th>Default</th></tr>
+    <tr><td>Color Tolerance</td><td>1–100</td><td>33</td></tr>
+    <tr><td>Trigger Delay</td><td>0–500 ms</td><td>0</td></tr>
+    <tr><td>First Shot Delay</td><td>0–300 ms</td><td>0</td></tr>
+    <tr><td>Movement Key Delay</td><td>0–300 ms</td><td>0</td></tr>
+    <tr><td>Right Click Delay</td><td>0.5–300 ms</td><td>250 ms</td></tr>
+    <tr><td>Grab Zone Top Offset</td><td>1–40 px</td><td>8</td></tr>
+    <tr><td>Grab Zone Left Offset</td><td>1–40 px</td><td>8</td></tr>
+    <tr><td>Grab Zone Width</td><td>1–40 px</td><td>10</td></tr>
+    <tr><td>Grab Zone Height</td><td>1–40 px</td><td>10</td></tr>
+  </table>
+
+  <p><strong>Overlays</strong></p>
+  <ul>
+    <li><strong>GrabZoneOverlay</strong> — a transparent window positioned exactly over the active grab zone, outlined in magenta with a red center dot. Useful for calibrating the scan region. Toggled with <code>H</code> or the "Show Grab Zone" button.</li>
+    <li><strong>ToggleStatusOverlay</strong> — a small <code>TOGGLE: ON</code> indicator at the left edge of the screen whenever always-on mode is active.</li>
+  </ul>
+  <p>
+    Both overlays use <code>attributes("-transparentcolor", ...)</code> for true window transparency, polling for
+    state updates every 100–200 ms via <code>after()</code>.
+  </p>
+  <p>
+    On window close, all settings are serialized to <code>trigger_config.json</code> and restored on the next
+    launch — slider values, selected keys, preset data, preset names, and hotkeys all persist across sessions.
+  </p>
+
+  <!-- PRESETS -->
+  <h2>Weapon Presets</h2>
+  <p>
+    Eight weapon presets are baked in, each pre-configured with empirically tuned movement and right-click delay
+    values matched to the weapon's play style:
+  </p>
+  <table>
+    <tr><th>Preset</th><th>Movement Delay</th><th>Right Click Delay</th><th>Hotkey</th></tr>
+    <tr><td>Marshal</td><td>97 ms</td><td>109 ms</td><td>F1</td></tr>
+    <tr><td>Outlaw</td><td>89 ms</td><td>107 ms</td><td>F2</td></tr>
+    <tr><td>AWP</td><td>110 ms</td><td>207 ms</td><td>F3</td></tr>
+    <tr><td>Chamber Ult</td><td>113 ms</td><td>105 ms</td><td>F4</td></tr>
+    <tr><td>Sheriff</td><td>75 ms</td><td>90 ms</td><td>F5</td></tr>
+    <tr><td>Deagle</td><td>80 ms</td><td>95 ms</td><td>F6</td></tr>
+    <tr><td>Operator</td><td>115 ms</td><td>215 ms</td><td>F7</td></tr>
+    <tr><td>Guardian</td><td>95 ms</td><td>100 ms</td><td>F8</td></tr>
+  </table>
+  <p>
+    Each preset stores the complete parameter set — not just delays but tolerance, trigger delays, activation key,
+    toggle key, and grab zone dimensions. The higher right-click delays on scoped weapons (AWP: 207 ms, Operator:
+    215 ms) reflect the longer scope-in animation time, during which firing would be ineffective. Preset switching
+    is instant and hotkey-driven, enabling mid-game weapon-matched reconfiguration without alt-tabbing.
+  </p>
+
+  <!-- LICENSE SYSTEM -->
+  <h2>License System</h2>
+  <p>
+    The tool includes a <strong>commercial license gate</strong> backed by a live <strong>Supabase</strong>
+    (PostgreSQL) database — indicating it was sold as a paid product.
+  </p>
+  <ul>
+    <li>On first launch, a tkinter dialog prompts for a license key.</li>
+    <li>The key is validated against the remote <code>licenses</code> table via the Supabase REST API.</li>
+    <li>If the license's <code>machine_id</code> field is null, it is set to the current machine's ID — <strong>locking the license to that machine</strong>.</li>
+    <li>If the stored machine ID matches, the check passes silently. Any other machine is rejected.</li>
+    <li>The validated key is cached locally in <code>license_info.json</code> to avoid re-querying on every launch.</li>
+  </ul>
+  <p>
+    Machine identity is derived from the MAC address via Python's <code>uuid.getnode()</code>. System metadata
+    (OS version, CPU count, platform string) is also collected at validation time, though only
+    <code>machine_id</code> is enforced by the current schema.
+  </p>
+  <div class="note">
+    <p>The Supabase anon API key and project URL are embedded in plaintext in the source. Anyone with access to
+    the source can query the license table directly — for production distribution these credentials should be
+    server-side or obfuscated in a compiled binary.</p>
+  </div>
+
+  <!-- ANTI-CHEAT IMPLICATIONS -->
+  <h2>Anti-Cheat Implications</h2>
+  <p>
+    This project is a concrete demonstration of a cheat category that fundamentally challenges the model on which
+    modern kernel-level anti-cheat is built.
+  </p>
+  <p>
+    Anti-cheat systems like Riot's Vanguard operate at ring-0 and are designed to detect: memory reads/writes
+    targeting game processes, code injection or DLL hooking, unsigned kernel drivers, process integrity violations,
+    and known cheat signatures in loaded modules. Count3rbalanc3 does none of these things. Its entire attack
+    surface is <code>mss.grab()</code> (used by OBS and every streaming app) and <code>pynput</code> key injection
+    (used by every automation framework and accessibility tool). From the kernel's perspective, it is semantically
+    identical to a screen recorder that occasionally presses a key.
+  </p>
+  <p>Catching screen-based triggerbots requires moving beyond process and memory inspection entirely:</p>
+  <ul>
+    <li><strong>Reaction time analysis</strong> — human reaction to visual stimuli averages 200–250 ms. A triggerbot running at screen-capture frequency can react in under 16 ms (one frame at 60 fps). Server-side shot timing logs with statistical analysis of shot latency distributions can flag superhuman consistency.</li>
+    <li><strong>Input pattern analysis</strong> — the tool fires on every frame a color is detected with optional fixed delays, producing mechanically consistent input cadences that differ statistically from human variability. Behavioral ML models can detect this signature.</li>
+    <li><strong>Screen capture API monitoring</strong> — an anti-cheat driver could flag high-frequency screen capture calls from non-whitelisted processes. Technically feasible but risks breaking legitimate software.</li>
+    <li><strong>Hardware fingerprinting</strong> — once detected by any method, banning requires hardware-level fingerprinting beyond MAC address or account identity to prevent trivial re-entry.</li>
+  </ul>
+
+  <!-- DEFENSIVE RESPONSE -->
+  <h2>Defensive Response</h2>
+  <p>
+    The existence of this class of tool suggests anti-cheat must evolve toward <strong>behavioral analysis</strong>
+    rather than relying solely on artifact detection.
+  </p>
+  <p>
+    The most robust detection surface is the game server. Shot timing, crosshair position at the moment of fire,
+    kill consistency rate, and reaction latency distributions are all observable server-side without any client
+    instrumentation. Aggregating these over time and flagging statistical outliers — such as sub-50 ms reaction
+    times sustained across a full game — is far harder to evade than client-side scanning, since reducing the
+    cheat's speed enough to avoid statistical flagging also degrades its effectiveness to near-human levels.
+  </p>
+  <div class="note">
+    <p>No single detection method is sufficient. The strongest approach is defense-in-depth: server-side
+    behavioral analysis as the primary signal, supplemented by client-side heuristics and hardware fingerprinting
+    for ban enforcement.</p>
+  </div>
+
+  <!-- ETHICS -->
+  <h2>Ethics &amp; Research Context</h2>
+  <p>
+    The development of Count3rbalanc3 was conducted as a controlled investigation into anti-cheat evasion at the
+    OS boundary. Testing was performed against bots in offline environments — the tool was never deployed against
+    live players in real matchmaking and was not publicly distributed.
+  </p>
+  <p>
+    The value of this work lies in making the threat concrete. Abstract arguments about screen-capture cheats are
+    less persuasive to security engineers than a working, polished, commercially-viable implementation that
+    demonstrably evades state-of-the-art anti-cheat. Understanding what evades detection is a prerequisite for
+    designing detection systems that don't.
+  </p>
+  <p>
+    The 50-iteration development history reflects the kind of sustained engineering investment that real-world
+    adversarial tooling accumulates over time — something that point-in-time detection research often
+    underestimates. Defensive systems need to account not just for current implementations but for the accumulated
+    polish and adaptability of mature adversarial codebases.
+  </p>
+
+  <!-- TECH STACK -->
+  <h2>Tech Stack</h2>
+  <div class="stack-grid">
+    <div class="stack-card"><div class="lib">mss</div><div class="desc">Fast cross-platform screen capture via OS screenshot APIs</div></div>
+    <div class="stack-card"><div class="lib">numpy</div><div class="desc">Vectorized pixel array processing and color matching</div></div>
+    <div class="stack-card"><div class="lib">pynput</div><div class="desc">Keyboard/mouse listening and synthetic input injection</div></div>
+    <div class="stack-card"><div class="lib">tkinter / ttk</div><div class="desc">GUI, styled widgets, overlay windows, dialog prompts</div></div>
+    <div class="stack-card"><div class="lib">supabase-py</div><div class="desc">Remote license validation against PostgreSQL via REST API</div></div>
+    <div class="stack-card"><div class="lib">threading</div><div class="desc">Non-blocking background capture loop and listener threads</div></div>
+    <div class="stack-card"><div class="lib">json</div><div class="desc">Config and license key persistence across sessions</div></div>
+    <div class="stack-card"><div class="lib">uuid / platform</div><div class="desc">Machine fingerprinting for per-machine license locking</div></div>
+  </div>
+  <p>
+    All dependencies are pure-Python or have lightweight native extensions. The tool runs on any Windows machine
+    with Python 3.8+ and requires no elevated privileges or driver installation — further underlining why it
+    presents no signature to ring-0 anti-cheat monitors.
+  </p>
+
+</div>
+
+<div class="wrap">
+  <footer>
+    <span>submerse</span> &nbsp;·&nbsp;
+    <a href="../index.html">home</a> &nbsp;·&nbsp;
+    <a href="../index.html#projects">projects</a>
+  </footer>
+</div>
+
+</body>
+</html>
