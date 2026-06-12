@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CS:GO Memory Tool — Process Inspection &amp; Game Security Research // submerse</title>
+<title>CS:CO Memory Tool — Process Inspection &amp; Game Security Research // submerse</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -46,7 +46,7 @@
   <article class="doc">
     <header>
       <div class="tag">project 03 · security research &amp; reverse engineering</div>
-      <h1>CS:GO Memory Tool — Process Inspection &amp; Game Security Research</h1>
+      <h1>CS:CO Memory Tool — Process Inspection &amp; Game Security Research</h1>
       <div class="meta">
         <span>Python</span><span>C++</span><span>Windows API</span><span>reverse engineering</span>
         <span>memory</span><span>game security</span><span>pointer chains</span>
@@ -174,7 +174,7 @@ constexpr void Write(const std::uintptr_t&amp; address, const T&amp; value) cons
     <p>Before writing a line of code, the first problem is conceptual. How does a running Windows
       process store its game state, and how does any external program reach it?</p>
     <p>Windows gives every process its own virtual address space — 4 GB for a 32-bit process like
-      CS:GO. The game engine allocates objects on the heap at runtime: players, weapons, world
+      CS:CO. The game engine allocates objects on the heap at runtime: players, weapons, world
       geometry. Those objects live at addresses that shift between sessions due to ASLR, but large
       modules like <code>client.dll</code> load at consistent base addresses that can be queried
       through the Windows API. Every value visible on screen — player positions, health, view
@@ -507,7 +507,7 @@ for bone_id in [6, 8, 12]:
     dx, dy, dz = dst[0]-src[0], dst[1]-src[1], dst[2]-src[2]
     hyp = math.sqrt(dx*dx + dy*dy)
     return -math.degrees(math.atan2(dz, hyp)), math.degrees(math.atan2(dy, dx))</pre>
-    <p>Pitch is negated because CS:GO's coordinate system has positive pitch pointing downward
+    <p>Pitch is negated because CS:CO's coordinate system has positive pitch pointing downward
       (looking up requires a negative value). Yaw wrapping is the subtle problem: angles live in
       (-180, 180] and when a target crosses the ±180 boundary, naive subtraction gives a ~360°
       jump instead of a small step. The <code>angle_diff</code> function normalises it:</p>
@@ -521,7 +521,7 @@ for bone_id in [6, 8, 12]:
         the target bone. <code>hyp</code> is the horizontal ground distance — the length of the
         vector projected onto the XY plane, ignoring height. <code>atan2(dz, hyp)</code> gives
         the vertical angle above or below the horizontal — if the target is above you, dz is
-        positive and atan2 returns a positive angle. CS:GO's pitch convention is inverted (positive
+        positive and atan2 returns a positive angle. CS:CO's pitch convention is inverted (positive
         pitch = looking down), so the result is negated. <code>atan2(dy, dx)</code> gives the
         compass bearing on the XY plane — yaw, ranging from −180° to +180°.</p>
       <span class="step">angle_diff — the yaw wrap problem</span>
