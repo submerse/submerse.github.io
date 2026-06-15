@@ -571,7 +571,7 @@ for bone_id in [6, 8, 12]:
         best_bone  = (bx_, by_, bz_)</pre>
     <p>The bone matrix paid off twice. For ESP: the highest head bone gives an exact point to
       draw a head circle on, and the full bone set enables a skeleton overlay instead of just a
-      flat box. For the aimbot  it gives a real head
+      flat box. For the aimbot — which hadn't been started yet — it would give a real head
       position to target. Without the bone matrix, an aimbot can only estimate the head as a
       fixed offset above the feet, which drifts whenever the player crouches, leans, or plays
       an animation. One piece of reverse engineering; two payoffs.</p>
@@ -746,13 +746,12 @@ elif value != prev_value:
       is brittleness: the pointer chain breaks on game updates and requires re-sourcing from
       Cheat Engine each time. The triggerbot hasn't had the same methodical hardening as the
       aimbot; it's a quick first pass that works but has known rough edges.</p>
-    <p>The 20ms pre-press delay and 50ms hold are humanisation constants. A zero-latency instant
-      click is a statistical anomaly — no human reaction time is that fast. Anti-cheat systems
-      that maintain timing histograms of click events will flag inputs outside the
-      human-achievable minimum latency. Understanding that detection surface is part of what
-      this stage teaches: not just how to fire, but what the defender is measuring. The delays
-      were a recent addition; before them the triggerbot produced machine-speed inputs that
-      would have been trivially detectable.</p>
+    <p>A zero-latency instant click is a statistical anomaly — no human reaction time is that
+      fast. Anti-cheat systems that maintain timing histograms of click events will flag inputs
+      outside the human-achievable minimum latency. A slider in the GUI exposes this directly:
+      the delay is tunable from 0 to 250ms at runtime, making the tradeoff between
+      responsiveness and detectability something you have to actively reason about rather than
+      a hardcoded constant someone else chose.</p>
 
     <!-- ============================================================ -->
     <h2>How This Maps to Security Research</h2>
