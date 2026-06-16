@@ -288,12 +288,7 @@ client = pymem.process.module_from_name(pm.process_handle, "client.dll").lpBaseO
       keeping only entries that now point to the new address. Pointers rooted in
       <code>client.dll</code>'s static memory follow the new allocation; random heap pointers
       that happened to hold the old address don't. Run the cycle two or three times and the list
-      shrinks from thousands to a handful to one stable <code>client.dll + OFFSET</code> entry.</p>
-    <p>At one point the pointer scan window was accidentally closed before the rescan was done.
-      Cheat Engine saves a <code>.ptr</code> file when the scan is started, so the results can
-      be reopened from File → Open File — but if no save path was chosen, the work is gone and
-      the whole scan has to be repeated from the breakpoint step. That happened once. After that,
-      naming the save file before starting the scan became habit.</p>
+      shrinks from thousands to a handful to one stable <code>client.dll + OFFSET</code> entry.</p
     <p>With <code>localPlayer</code> found, the radar hack was fully operational:</p>
     <span class="label">radar — forcing entity flags via write</span>
     <pre>RADAR_FORCE  = {0x0934: 256, 0x0978: 1}
