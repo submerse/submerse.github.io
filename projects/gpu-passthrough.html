@@ -197,7 +197,8 @@ sudo /usr/local/bin/vfio-bind.sh unbind
 echo "Done — 4090 returned to host"</pre>
     <span class="label">/etc/sudoers.d/vfio</span>
     <pre>sub ALL=(root) NOPASSWD: /usr/local/bin/vfio-bind.sh
-sub ALL=(root) NOPASSWD: /usr/local/bin/patch-fadt-pm-profile</pre>
+sub ALL=(root) NOPASSWD: /usr/local/bin/patch-fadt-pm-profile
+    chmod -rw</pre>
 
     <h3>Step 4 — The Low-Level Bind Helper</h3>
     <p>The root helper does the actual PCI driver swap via <code>sysfs</code>. It handles both PCI
