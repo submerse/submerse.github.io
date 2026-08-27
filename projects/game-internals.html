@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS:CO Memory Tool — Process Inspection &amp; Game Security Research // submerse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+  .doc h3{font-family:var(--mono);font-size:16px;font-weight:600;color:var(--text);
+    margin:36px 0 12px;letter-spacing:-.2px}
+  .doc h3::before{content:"› ";color:var(--accent-dim)}
+  .doc table{width:100%;border-collapse:collapse;margin:0 0 20px;
+    font-family:var(--mono);font-size:13.5px}
+  .doc th{text-align:left;padding:9px 14px;color:var(--accent-dim);
+    border-bottom:2px solid var(--line);font-weight:500}
+  .doc td{padding:8px 14px;color:var(--text-dim);border-bottom:1px solid var(--line);
+    vertical-align:top}
+  .doc tr:last-child td{border-bottom:none}
+  .doc tr:hover td{background:var(--bg-card-hover)}
+  .label{font-family:var(--mono);font-size:11px;color:var(--magenta);letter-spacing:1px;
+    text-transform:uppercase;margin:28px 0 6px;display:block}
+  .shots img{cursor:zoom-in}
+  .lightbox{position:fixed;inset:0;z-index:999;display:none;
+    background:rgba(10,12,16,.92);align-items:center;justify-content:center;cursor:zoom-out}
+  .lightbox.open{display:flex}
+  .lightbox img{max-width:92vw;max-height:92vh;border:1px solid var(--line);border-radius:8px}
+  .lightbox .x{position:absolute;top:18px;right:24px;font-family:var(--mono);
+    font-size:26px;color:var(--text-dim);cursor:pointer;line-height:1}
+  .lightbox .x:hover{color:var(--accent)}
+  .breakdown{border-left:2px solid var(--accent-dim);padding:14px 20px;margin:18px 0 22px;
+    background:var(--bg-card)}
+  .breakdown .step{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.5px;
+    text-transform:uppercase;display:block;margin:12px 0 3px}
+  .breakdown .step:first-child{margin-top:0}
+  .breakdown p{margin:3px 0 0;color:var(--text-dim);font-size:14px;line-height:1.6}
+  .breakdown code{font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 01 · security research &amp; reverse engineering</div>
+      <h1>CS:GO Memory Tool — Process Inspection &amp; Game Security Research</h1>
+      <div class="meta">
+        <span>Python</span><span>C++</span><span>Windows API</span><span>reverse engineering</span>
+        <span>memory</span><span>game security</span><span>pointer chains</span>
+        <span>overlay</span><span>Cheat Engine</span><span>security research</span>
+      </div>
+    </header>
+
+    <h2>Overview</h2>
+    <p>This started as a question: what exactly is anti-cheat software doing? That question doesn't
+      have a clean answer from the outside. To understand a defender, you have to understand the
+      attack surface it's defending — and the only way to genuinely understand that surface is to
+      build something that works against it.</p>
+    <p>Over six iterations the tool grew from a basic memory reader into a multi-featured research
+      artefact: a transparent fullscreen ESP overlay drawing entity boxes, health bars, and
+      bone-accurate head circles; an aimbot with Bezier-smoothed angle writes and runtime recoil
+      correction; a triggerbot that monitors a game-internal pointer chain for crosshair contact;
+      and a radar hack that forces enemies visible on the minimap. All running concurrently across
+      seven background threads, configured through a tabbed GUI.</p>
+    <p>What follows is the project in the order it actually happened — from the first broken
+      C++ compile, through the Cheat Engine offset grind, to each feature built on top of the
+      last. The holdups and dead ends are in here too, because they're where most of the learning
+      was.</p>
+
+    <!-- ============================================================ -->
+    <h2>The Starting Point — Reading Before Writing</h2>
+
+    <p>Before touching Cheat Engine or writing a line of code, the first step was conceptual.
+      How does a running Windows process store its game state, and how does any external program
+      reach it?</p>
+    <p>Windows gives every process its own virtual address space — 4 GB for a 32-bit process like
+      CS:GO. The game engine allocates objects on the heap at runtime: players, weapons, world
+      geometry. Those objects live at addresses that shift between sessions due to ASLR, but large
+      modules like <code>client.dll</code> load at consistent base addresses that can be queried
+      through the Windows API. Every value visible on screen — player positions, health, view
+      angles — exists in that address space as raw bytes.</p>
+    <p><strong>ReadProcessMemory</strong> and <strong>WriteProcessMemory</strong> are the Windows
+      API calls that let a process with the right handle reach into another process's address
+      space and read or modify it. That's the entire primitive. Understanding that these API calls
+      exist, and that anything with the right handle can use them, is the mental model that makes
+      everything else in this project follow naturally.</p>
+    <p>Before picking a language or framework, it was worth understanding what a view matrix is and
+      why projecting 3D positions onto a 2D screen requires one; what an "entity list" means in a
+      Source-engine game; how view angles are stored and written back. Going in blind with a
+      scanner and no model of the data would have been hopeless. Knowing in advance that a 4×4
+      float matrix and a flat array of entity pointers <em>had</em> to exist somewhere is what
+      made the search tractable.</p>
+
+    <!-- ============================================================ -->
+    <h2>Stage 1 — The C++ Attempt, the Compiler, and Windows Defender</h2>
+
+    <p>The first implementation was in C++, built in Visual Studio. The plan was a native Win32
+      binary using a handwritten <code>Memory</code> class that wrapped <code>OpenProcess</code>,
+      <code>ReadProcessMemory</code>, and <code>WriteProcessMemory</code> directly, with a
+      templated <code>Read&lt;T&gt;</code> and <code>Write&lt;T&gt;</code> interface:</p>
+    <span class="label">memory class — c++ prototype</span>
+    <pre>template &lt;typename T&gt;
+constexpr const T Read(const std::uintptr_t&amp; address) const noexcept
+{
+    T value = { };
+    ::ReadProcessMemory(processHandle,
+        reinterpret_cast&lt;const void*&gt;(address), &amp;value, sizeof(T), NULL);
+    return value;
+}
+
+template &lt;typename T&gt;
+constexpr void Write(const std::uintptr_t&amp; address, const T&amp; value) const noexcept
+{
+    ::WriteProcessMemory(processHandle,
+        reinterpret_cast&lt;void*&gt;(address), &amp;value, sizeof(T), NULL);
+}</pre>
+    <p>This didn't compile on the first try. It didn't compile on the second try either. The
+      errors were instructive:</p>
+
+    <div class="breakdown">
+      <span class="step">True vs true</span>
+      <p>The main loop was <code>while (True)</code>. Correct Python, hard build error in C++.
+        The language is case-sensitive; the boolean literal is <code>true</code>. This is a
+        specific symptom of switching between languages — Python conventions bleed into C++
+        unconsciously. The compiler catches it immediately and refuses to proceed.</p>
+      <span class="step">miliseconds</span>
+      <p><code>std::chrono::miliseconds</code> doesn't exist. The correct spelling is
+        <code>milliseconds</code>. In Python a typo like this only surfaces at runtime when the
+        line executes. In C++ the template instantiation fails at compile time. The difference
+        matters when you're writing code that interacts with system resources — you want these
+        failures early.</p>
+      <span class="step">missing includes</span>
+      <p><code>std::this_thread::sleep_for</code> requires <code>#include &lt;thread&gt;</code>
+        and <code>#include &lt;chrono&gt;</code>. Without them the linker reports an unresolved
+        external symbol. Python's import system obscures dependency chains; C++ makes every one
+        explicit. Reading "unresolved external symbol" errors teaches how the linker works, which
+        is directly applicable to understanding DLL injection and function hooking at the binary
+        level.</p>
+      <span class="step">x86 vs x64 mismatch</span>
+      <p>Classic Offensive is a 32-bit process. Building the tool as x64 creates a bitness
+        mismatch — <code>OpenProcess</code> can still attach, but pointer-width arithmetic is
+        wrong and memory reads return garbage. Selecting the x86 platform target in Visual Studio
+        is a forced encounter with the same bitness considerations that matter when writing
+        shellcode or choosing between 32-bit and 64-bit exploitation paths.</p>
+    </div>
+
+    <p>Once those were fixed, the binary compiled cleanly — and then disappeared. The
+      <code>.exe</code> was nowhere in the output directory. No error, no crash, just absence.
+      Windows Defender had quarantined it silently before it could run.</p>
+    <p>This is expected behaviour. A native binary that statically imports <code>OpenProcess</code>,
+      <code>ReadProcessMemory</code>, and <code>WriteProcessMemory</code> carries a capability
+      fingerprint that matches process injection tools and credential theft malware. The AV
+      doesn't know the binary is a research tool; it sees the import table and acts on what
+      those imports imply. The fix — adding a build output folder exclusion to Defender — is
+      operational knowledge that matters in both directions. A malware analyst triaging an
+      unknown sample runs the same analysis in reverse: import table first (what can this binary
+      do?), then strings, then dynamic behaviour. Understanding <em>why</em> the binary was
+      flagged is understanding how that first-pass triage works — and why attackers resolve
+      sensitive imports dynamically via <code>GetProcAddress</code> rather than declaring them
+      statically.</p>
+    <p>The C++ prototype ran as a minimal radar hack once the exclusion was in place. But the
+      iteration speed was wrong for a research workflow. Every offset change — and offsets were
+      going to change constantly during the Cheat Engine sessions — required a full recompile.
+      The switch to Python and <code>pymem</code> was a tooling decision: <code>pymem</code>
+      wraps the same Win32 calls in a Python interface with typed read methods
+      (<code>read_float</code>, <code>read_int</code>, <code>read_uint</code>), and an offset
+      change is a one-line edit followed by a re-run. For a research loop where the same
+      constant might need to be re-derived from scratch after a game update, that cycle
+      time matters enormously.</p>
+    <span class="label">initial attachment — python/pymem</span>
+    <pre>pm = pymem.Pymem("csgo.exe")
+client = pymem.process.module_from_name(pm.process_handle, "client.dll").lpBaseOfDll</pre>
+    <p>If those two lines run without a <code>PermissionError</code>, the handle is open and
+      the module base is known. Everything else in the project builds from this.</p>
+
+    <!-- ============================================================ -->
+    <h2>Stage 2 — Radar: Proving the Access Works</h2>
+
+    <p>The radar was the first feature built and the right one to start with. It needs no
+      rendering, no math, no overlay — just the core memory-scanning loop in its purest form.
+      If the radar works, the process attachment works, <code>client.dll</code>'s base is
+      stable, and the scan methodology is valid. Everything that comes after depends on those
+      three things being true.</p>
+    <p>The target is <strong>CS:CO (Counter-Strike: Classic Offensive)</strong> — a community
+      mod that fuses CS:GO's engine with CS:Source's gameplay and assets. This makes it a better
+      learning exercise and a harder offset problem simultaneously. Published CS:GO offset
+      databases (hazedumper, cs2-dumper) exist for the official build. Classic Offensive does not
+      appear in them — it's a hybrid of two engine generations and offsets that match vanilla
+      CS:GO don't match this mod. Every address in the constants block had to be sourced
+      independently against this specific binary. There is no dump to copy from.</p>
+
+    <h3>Cheat Engine and the Known-Value Scan</h3>
+    <p>Cheat Engine is the tool for offset research. Its core loop — scan for a known value,
+      change that value in-game, scan again for the new value, repeat until one address remains —
+      is the same category of dynamic analysis as a PIN instrumenter or a Frida hook. The game
+      just provides the fastest feedback loop: you can see immediately whether your read makes
+      sense.</p>
+    <p>The problem with raw scan addresses is that they're heap addresses: they change every
+      session because ASLR relocates allocations. The goal is always an offset from a stable
+      base — <code>client.dll</code>, which loads at a reproducible address each run. Cheat
+      Engine can trace pointer chains back from a dynamic heap address to a module base,
+      exposing the chain of pointer dereferences the engine itself uses to reach that field.</p>
+
+    <h3>Finding the Spotted Flag</h3>
+    <p>The radar hack writes a single byte — the "spotted" flag — into each enemy entity, forcing
+      their position to appear on the minimap. Finding it uses the simplest possible version of
+      the scan loop: look directly at an enemy so they appear (spotted) on the radar. Freeze the
+      scan. Look away so they drop off it. Scan again for the value that just changed. The flag
+      that toggles between those two states is the field. One or two iterations is usually enough
+      to narrow it to a handful of candidates, and verifying is instant — write <code>true</code>
+      to the address and watch the radar.</p>
+
+    <h3>Finding teamNum — The Disambiguation Problem</h3>
+    <p>The entity list holds all entities on the server — both teams plus the local player.
+      Writing the spotted flag blindly to every entity would mark your own teammates as visible
+      too, which is useless. The radar needs to skip any entity on the same team as the local
+      player and only write to enemies. That requires two things: the team number stored inside
+      each enemy's entity struct, and the local player's own team number to compare against.
+      Both come from the same field — <code>m_iTeamNum</code> — read from different entity
+      structs: each enemy's via their slot in the entity list, the local player's via the
+      <code>localPlayer</code> static pointer covered in the next section.</p>
+    <p><code>m_iTeamNum</code> lives at a fixed byte offset inside the entity struct itself.
+      The struct is a block of memory allocated on the heap when a player connects to the server
+      — its address changes every session, but its internal layout is fixed. The team number is
+      always at the same byte position relative to the start of the struct, regardless of where
+      in the heap that struct ended up. That fixed distance from the struct's base address is
+      the offset (<code>+0x158</code> in this build). Every entity in the list has this same
+      field at this same offset — read it from any entity and you get that entity's team.</p>
+    <p>Before the radar can selectively target enemies, that offset needs to be found.
+      Finding <code>m_iTeamNum</code> uses the same scan technique as the spotted flag — it's a
+      predictable integer: 2 for Terrorist, 3 for Counter-Terrorist — but the disambiguation
+      step was more involved.</p>
+    <p>The first scan produced around ten addresses that all changed between 2 and 3 when teams
+      switched. This is normal: the engine mirrors certain values across multiple structures — the
+      player entity struct, the HUD, the scoreboard, cached network state. All of them update
+      together. Only one is the authoritative field inside the player struct that the game's own
+      logic reads when it needs to compare teams.</p>
+    <p>The disambiguation technique is "Find out what accesses this address" in Cheat Engine.
+      For each candidate address, this logs every instruction that reads or writes that location
+      while the game runs. The pattern to look for is a register-plus-offset form —
+      <code>mov eax, [reg + OFFSET]</code> or <code>cmp [reg + OFFSET], value</code> — because
+      that means the game is accessing a field at a consistent byte position within a struct,
+      which is what an entity field looks like at the assembly level. Several of the ten
+      addresses showed irrelevant access patterns (global variable writes, array-indexed reads
+      that belonged to the entity list rather than a struct field). The one that settled it was:</p>
+    <span class="label">decisive instruction — cheat engine capture</span>
+    <pre>cmp dword ptr [esi+00000158], 02</pre>
+    <p>The game's own team comparison logic. Not writing — <em>reading</em> the value at
+      <code>+0x158</code> and comparing it to 2. That's the field the game's decision code
+      actually consults. Two other candidates had shown <code>[ecx + 0xB8]</code> as a write
+      destination — the engine writes to both fields — but <code>+0x158</code> is what it reads.
+      Using the write-only field would mean the filter reads a value the game itself ignores.</p>
+
+    <h3>Finding localPlayer — The Pointer Scan</h3>
+    <p>The entity list holds a pointer to every player on the server but carries no
+      "this is you" marker — nothing in the array identifies which slot is the local player.
+      The game needs fast access to the local player every frame for rendering, HUD updates,
+      input handling, and physics; iterating all 64 slots each frame to find yourself would
+      be wasteful. The engine's solution is a dedicated global: a single pointer in
+      <code>client.dll</code>'s static data segment that permanently holds the address of the
+      local player's entity struct. That pointer is <code>localPlayer</code>.</p>
+    <p>The entity struct is heap-allocated — its address shifts every session. The
+      <code>localPlayer</code> pointer lives in the module's static segment, fixed relative to
+      <code>client.dll</code>'s base for the life of the build. Dereference it at runtime and
+      you get the current session's local player struct with no scanning required — the same
+      principle behind every module-relative offset in the project: the heap address moves,
+      the static reference into it does not.</p>
+    <p>The process: use "Find out what accesses this address" on the confirmed
+      <code>teamNum</code> address to find the instruction that reads it. That instruction
+      uses a base register (<code>esi</code>, <code>ecx</code>) that holds the entity struct
+      address. Read that register — that's the live entity struct address for the session.
+      Then run a pointer scan: search all of memory for a location that currently holds that
+      address. The result rooted inside <code>client.dll</code>'s static segment is the
+      localPlayer pointer.</p>
+    <p>First attempt hit a wall immediately. Cheat Engine's default debugger mode caused an
+      access violation when setting the breakpoint. The fix was switching the debugger method in
+      CE settings from the Windows default to VEH (Vectored Exception Handler). VEH fires before
+      a structured exception handler, which makes it less visible to software monitoring for
+      standard debugger presence. This is a practical encounter with how Windows exception
+      dispatch works — and the same distinction anti-cheat systems use when choosing between
+      different debugger-detection techniques.</p>
+    <p>The pointer scan itself returned thousands of candidates. Narrowing them requires the
+      rescan technique: restart the match so the entity struct gets reallocated at a new address,
+      find that new address using the same register-read method, then rescan the existing results
+      keeping only entries that now point to the new address. Pointers rooted in
+      <code>client.dll</code>'s static memory follow the new allocation; random heap pointers
+      that happened to hold the old address don't. Run the cycle two or three times and the list
+      shrinks from thousands to a handful to one stable <code>client.dll + OFFSET</code> entry.</p
+    <p>With <code>localPlayer</code> found, the radar hack was fully operational:</p>
+    <span class="label">radar — forcing entity flags via write</span>
+    <pre>RADAR_FORCE  = {0x0934: 256, 0x0978: 1}
+RADAR_TOGGLE = {0x0A20: 1,   0x0A24: 1}
+
+for offset, desired in RADAR_FORCE.items():
+    if pm.read_int(ent_ptr + offset) != desired:
+        pm.write_int(ent_ptr + offset, desired)</pre>
+    <p>The read-before-write pattern avoids unnecessary writes. VAC-style anti-cheats can monitor
+      write frequency to protected memory regions — only writing when the value has drifted keeps
+      the write volume low. The flag toggling (RADAR_TOGGLE) alternates each loop iteration to
+      keep a watchdog from detecting a static value that never changes naturally.</p>
+    <p>Seeing the enemy dot appear on the minimap in response to a write from an external process
+      is the moment the abstraction collapses. The game doesn't know who wrote that byte. This
+      is also what <code>WriteProcessMemory</code> looks like in process injection — the target
+      in that case is a shellcode stub rather than a game flag, but the API call is identical.
+      Establishing that reality early is the point of building the radar first.</p>
+
+    <!-- ============================================================ -->
+    <h2>Stage 3 — ESP: Mapping the Object Graph</h2>
+
+    <p>With the radar working and the foundational methodology validated, ESP was next. ESP is
+      where the bulk of the reverse engineering lived, because it meant mapping the engine's
+      object graph rather than flipping a single flag. It had a strict internal dependency
+      order — each step unlocked the next.</p>
+
+    <h3>The Entity List</h3>
+    <p>The entity list is the base array that holds a pointer to every player in the server.
+      It lives at a stable offset from <code>client.dll</code>'s base:
+      <code>client.dll + 0x04E2520C</code>. Each entry is indexed by slot and holds an entity
+      pointer. Everything downstream — reading positions, health, teams, bones — indexes off
+      this. Finding it used the same scan loop as before, anchored against entity counts that
+      change predictably as players join and leave the server.</p>
+
+    <h3>Fingerprinting the Local Player</h3>
+    <p><code>localPlayer</code> and the entity list index solve two different problems.
+      <code>localPlayer</code> answers <em>what is my data</em> — dereference it and you have
+      direct access to your own entity struct: health, position, team number. The radar relies
+      on this: read my team from <code>localPlayer</code>, compare against each enemy's team,
+      only write the spotted flag to the ones that differ.</p>
+    <p>The entity list index answers <em>which slot in the array is me</em>. The ESP and aimbot
+      loop through all 64 entity list slots by number. When the loop reaches your own slot, it
+      needs to skip it — skip drawing a box over yourself, skip selecting yourself as an aimbot
+      target. But the entity list is a flat array of pointers with no self-marker; the slot
+      assigned to you depends on connection order and changes every match.</p>
+    <p>The fingerprint function bridges both: it uses <code>localPlayer</code> as ground truth —
+      reading your known position and health directly from the struct — then walks the entity list
+      comparing each slot against those values. The slot that matches is your index. That index
+      gets stored once and reused by every loop that needs to skip you. You need both because
+      <code>localPlayer</code> gives you the data; the fingerprint gives you the position in
+      the array.</p>
+    <p>The solution is a fingerprinting loop that runs on a slow 10-second cycle and cross-checks
+      two independent values against a known-good local player pointer:</p>
+    <span class="label">detect_local_player — position and health cross-check</span>
+    <pre>base_ptr     = pm.read_uint(client + 0x0526108C)
+local_health = pm.read_int(base_ptr + 0x100)
+local_x      = pm.read_float(base_ptr + 0x138)
+local_z      = pm.read_float(base_ptr + 0x140)
+
+for i in range(MAX_ENTITIES):
+    d = math.sqrt((ex - local_x)**2 + (ez - local_z)**2)
+    if d &lt; 2.0 and abs(eh - local_health) &lt; 1 and d &lt; closest_dist:
+        closest_idx = i</pre>
+    <div class="breakdown">
+      <span class="step">the local player pointer</span>
+      <p>The local player's raw data — position and health — comes from the
+        <code>localPlayer</code> pointer resolved in Stage 2 (<code>client + 0x0526108C</code>).
+        <code>localPlayer</code> gives direct struct access without touching the entity list.
+        What it doesn't expose is the entity list <em>index</em> — the slot number the ESP and
+        aimbot loops need to skip drawing over yourself and to exclude you from aim target
+        selection. The cross-check here bridges both access paths: use the known-good values
+        from <code>localPlayer</code> to identify which entity list slot belongs to the
+        local player.</p>
+      <span class="step">XZ distance matching</span>
+      <p>For every entity slot, compute the 2D ground-plane distance between the entity's XZ
+        position and the known local position. Y is omitted because vertical position can differ
+        slightly depending on how the engine interpolates the local player versus the networked
+        entity representation. The 2.0 world-unit threshold is tight enough to exclude any other
+        player but loose enough to absorb that representation difference.</p>
+      <span class="step">health cross-check</span>
+      <p>Position alone isn't sufficient — two entities can briefly share the same spawn position.
+        The health cross-check adds a second independent dimension. Both conditions must be true
+        simultaneously, making a false positive essentially impossible in practice.</p>
+      <span class="step">10-second refresh rate</span>
+      <p>The local entity index is stable within a round — it only changes when the player
+        disconnects and reconnects. Running this scan every frame would burn 64 memory reads
+        every 10ms for a value that virtually never changes. The slow refresh is the same
+        reasoning behind the radar's read-before-write: minimise unnecessary access volume.</p>
+    </div>
+
+    <h3>The Overlay</h3>
+    <p>Drawing on top of the game requires a surface that is: fullscreen, always on top, visually
+      transparent, and non-interactive (mouse clicks must fall through to the game). Tkinter
+      provides the drawing surface; two Win32 extended window style flags handle the rest.</p>
+    <span class="label">overlay setup — transparent, click-through</span>
+    <pre>root.attributes("-topmost", True)
+root.attributes("-transparentcolor", "black")
+root.overrideredirect(True)
+root.geometry(f"{sw}x{sh}+0+0")
+
+canvas = tk.Canvas(root, width=sw, height=sh, bg="black", highlightthickness=0)
+
+hwnd = ctypes.windll.user32.FindWindowW(None, root.title())
+make_window_clickthrough(hwnd)</pre>
+    <span class="label">win32 click-through via ctypes</span>
+    <pre>GWL_EXSTYLE       = -20
+WS_EX_LAYERED     = 0x80000
+WS_EX_TRANSPARENT = 0x20
+LWA_COLORKEY      = 0x1
+
+styles = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+styles |= WS_EX_LAYERED | WS_EX_TRANSPARENT
+ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, styles)
+ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0x000000, 0, LWA_COLORKEY)</pre>
+    <p><code>WS_EX_LAYERED</code> enables color-key transparency — anything drawn in pure black
+      becomes invisible. <code>WS_EX_TRANSPARENT</code> makes the window non-interactive: the OS
+      routes mouse and keyboard events to whatever window is below it in Z-order, which is the
+      game.</p>
+    <p>The first bug here was silent and took a while to diagnose. The overlay loaded fine
+      visually — transparent, fullscreen, drawing correctly — but mouse input to the game was
+      completely blocked. The cause: Tkinter's HWND doesn't exist until after the first layout
+      pass completes. Calling <code>FindWindowW</code> immediately after
+      <code>root.geometry()</code> returns NULL because the window isn't registered yet.
+      <code>root.update_idletasks()</code> forces the layout pass before the Win32 call. Without
+      it, <code>FindWindowW</code> returns NULL silently, <code>SetWindowLongW</code> never runs,
+      and <code>WS_EX_TRANSPARENT</code> is never set. Nothing visibly broke until you tried to
+      click something in-game — a failure mode that doesn't announce itself.</p>
+
+    <h3>Finding the View Matrix — The Breakthrough</h3>
+    <p>The view matrix was the hardest single thing to find in the entire project, and finding
+      it was the moment everything changed. Before it, ESP existed in a rough form — boxes drawn
+      at estimated screen positions using fixed offsets and a lot of guesswork. The aimbot
+      existed in an even rougher form: read the enemy's world coordinates, compute a direction
+      vector, write the angle. It worked loosely but had no real precision — no concept of where
+      on the player to aim, no ability to distinguish the head from the feet at the pixel level.
+      It was pointing in the right direction, not aiming at anything specific.</p>
+    <p>The view matrix fixed all of that at once. A 4×4 block of 16 floats that encodes the
+      camera's full orientation and projection transform — once that address was found, any
+      world-space coordinate could be projected onto the screen with pixel accuracy. The ESP
+      boxes snapped into correct alignment. The head circle, previously estimated as a rough
+      offset, became a precise projection of the actual head bone. And the aimbot — which had
+      been shooting in the general direction of a player's feet — could now target the exact
+      bone position with the angle math working correctly against real 3D geometry rather than
+      approximated screen positions. Everything that came after depended on this one address.</p>
+    <p>The challenge is that unlike health or team number, you can't anchor the scan against
+      a UI-readable value. You're searching for a structure whose 16 entries are derived
+      continuously from camera angles — they change every frame as you move the mouse. There's
+      no obvious number to type into the search box. It took significantly longer to find than
+      any other offset in the project, and several false candidates looked plausible until the
+      confirmation test exposed them. CS:CO's developer console is what eventually made it
+      tractable: <code>cl_showpos 1</code> shows your current world position on screen, and
+      more importantly, <code>setang</code> lets you snap the camera to exact angle values,
+      which makes the matrix entries mathematically predictable.</p>
+
+    <h4>The Angle-Based Scan</h4>
+    <p><code>setang</code> is a Source engine console command that sets pitch, yaw, and roll to
+      exact values. Running <code>setang 0 0 0</code> locks the camera to pitch = 0°, yaw = 0°,
+      roll = 0° — not approximately, exactly. At that orientation the rotation entries of the
+      view matrix encode <code>cos(0°) = 1.0</code> and <code>sin(0°) = 0.0</code> with no
+      rounding. Scan for the float <code>1.0</code>, then run <code>setang 0 90 0</code> so
+      those same entries now encode <code>cos(90°) ≈ 0.0</code> and
+      <code>sin(90°) = 1.0</code>, and scan again. Repeat at 180° and 270°. Very few floats
+      in memory cycle between exactly 1, 0, −1, and 0 as you step through cardinal angles.
+      The candidate list drops sharply each pass — what <code>setang</code> provides that
+      manual aiming can't is certainty: you know the value precisely, not approximately, so
+      the scan can filter hard.</p>
+
+    <h4>The Change-Pattern Scan</h4>
+    <p>If the angle scan still leaves too many candidates, a second pass runs in parallel: scan
+      for "Changed value" while continuously rotating the camera, then immediately scan for
+      "Unchanged value" while holding perfectly still. Matrix entries change while the camera
+      moves and freeze when it stops. A few rounds of spin / freeze / scan narrows the field to
+      addresses that are definitely camera-derived. Cross-referencing this against the angle
+      scan result usually converges quickly.</p>
+
+    <h4>Confirming the Matrix</h4>
+    <p>Candidate addresses need to be verified before trusting them. Two checks: first, read
+      16 consecutive floats and verify the top-left 3×3 submatrix is approximately orthonormal —
+      the three row vectors should each have magnitude close to 1.0 and their dot products
+      should be close to 0. A random address that happens to hold plausible-looking floats
+      usually fails this. Second, and more conclusively: run a known world position through the
+      candidate matrix using the projection formula and verify the output pixel matches where
+      that point actually appears on screen. Use <code>cl_showpos 1</code> to read your current
+      world coordinates, pick a wall or landmark at a known distance, and back-calculate the
+      expected screen position. If the candidate produces the right pixel, it's correct.</p>
+    <p>Several addresses passed the orthonormality check and failed the projection test —
+      matrix-shaped data that wasn't the view matrix. The projection test is the conclusive
+      one. When it finally passed, and enemy positions started landing correctly on screen for
+      the first time, it was immediately obvious. The boxes that had been drifting and
+      misaligned snapped into place. The head circle landed on the head. The aimbot started
+      writing angles that actually pointed at the bone rather than somewhere near the player.
+      One address, and everything connected.</p>
+    <p>For this build the view matrix lives at <code>client.dll + 0x4DF85A4</code>. The
+      technique matters more than the constant — any update that shifts the module layout
+      requires re-sourcing the address from scratch using the same approach.</p>
+
+    <h3>World-to-Screen Projection</h3>
+    <p>With the matrix address confirmed, projection is straightforward. The view matrix is a
+      4×4 float matrix that encodes the camera's orientation and projection transform.
+      Multiplying a 3D world coordinate through it produces a clip-space coordinate that
+      normalises to a pixel position:</p>
+    <span class="label">world_to_screen — clip-space projection</span>
+    <pre>def world_to_screen(pos, matrix, sw, sh):
+    x, y, z = pos
+    clip_x = x*matrix[0]  + y*matrix[1]  + z*matrix[2]  + matrix[3]
+    clip_y = x*matrix[4]  + y*matrix[5]  + z*matrix[6]  + matrix[7]
+    clip_w = x*matrix[12] + y*matrix[13] + z*matrix[14] + matrix[15]
+    if clip_w &lt; 0.01:
+        return None
+    ndc_x = clip_x / clip_w
+    ndc_y = clip_y / clip_w
+    return int(sw/2 + ndc_x*sw/2), int(sh/2 - ndc_y*sh/2)</pre>
+    <div class="breakdown">
+      <span class="step">matrix multiply into clip space</span>
+      <p>The view matrix is 16 floats laid out row-major. Multiplying the world position
+        <code>(x, y, z, 1)</code> through it produces three clip-space components.
+        <code>clip_x</code> and <code>clip_y</code> use rows 0 and 1. <code>clip_w</code> uses
+        row 3 (indices 12–15) — the perspective row that encodes depth. The implicit fourth input
+        component is 1, which is why the translation terms (<code>matrix[3]</code>,
+        <code>matrix[7]</code>, <code>matrix[15]</code>) are added directly.</p>
+      <span class="step">the perspective divide</span>
+      <p><code>clip_w</code> encodes how far the point is from the camera along the view axis.
+        Dividing <code>clip_x</code> and <code>clip_y</code> by it produces NDC (Normalized
+        Device Coordinates) in the range [−1, 1]. This is the perspective divide — it shrinks
+        coordinates for distant points and expands them for close ones, producing natural
+        foreshortening.</p>
+      <span class="step">NDC to pixel</span>
+      <p><code>ndc_x = −1</code> is the left edge, <code>+1</code> is the right. Formula:
+        <code>sw/2 + ndc_x * sw/2</code>. For Y the sign flips — NDC Y increases upward but
+        screen Y increases downward: <code>sh/2 − ndc_y * sh/2</code>.</p>
+      <span class="step">the clip_w guard</span>
+      <p>If <code>clip_w</code> is negative the point is behind the camera. Early versions
+        omitted this guard — entities directly behind the player drew boxes in the wrong screen
+        quadrant because dividing by a negative <code>clip_w</code> inverts the sign of both NDC
+        values. The guard short-circuits it by returning <code>None</code>. A silent visual bug
+        that only appeared when turning around quickly.</p>
+    </div>
+
+    <h3>Box Drawing and Crouch Compensation</h3>
+    <p>For each entity: read the entity pointer, skip nulls and dead entities, project foot and
+      head positions, derive the box from the pixel distance between them:</p>
+    <span class="label">entity loop — box construction</span>
+    <pre>feet_screen = world_to_screen((ex, ey, ez),     view_matrix, sw, sh)
+head_screen = world_to_screen((ex, ey, head_z), view_matrix, sw, sh)
+
+box_h = fy - hy
+box_w = box_h // 2
+x1, y1 = fx - box_w//2, hy
+x2, y2 = fx + box_w//2, fy
+
+canvas.create_rectangle(x1, y1, x2, y2, outline=box_color, width=2)</pre>
+    <p>Head height is not a fixed offset. Players can crouch, and the animation transition is
+      smooth. Without accounting for it, crouched players show a box that overshoots the head.
+      A delta value interpolated from a crouch float corrects this:</p>
+    <pre>delta  = max(0.0, min(1.0, (72.0 - crouch) / 18.0))
+head_z = ez + 70 - (HEAD_OFFSET * delta)</pre>
+
+    <h3>Bone Matrices — The Hard One</h3>
+    <p>The flat box worked but felt imprecise. The game stores a bone matrix for each entity at
+      <code>entity_ptr + 0x26A0</code> — an array of 4×3 float matrices, one per bone. Reading
+      the highest-Z bone among IDs 6, 8, and 12 (neck/head area) gives an exact world-space
+      head position. Finding the pointer and the per-bone stride of <code>0x30</code> was the
+      single hardest piece of the whole project:</p>
+    <span class="label">bone matrix — head position extraction</span>
+    <pre>bm_ptr = pm.read_uint(ent_ptr + 0x26A0)
+best_bone  = None
+highest_bz = -float("inf")
+for bone_id in [6, 8, 12]:
+    off  = bone_id * 0x30
+    bx_  = pm.read_float(bm_ptr + off + 0x0C)
+    by_  = pm.read_float(bm_ptr + off + 0x1C)
+    bz_  = pm.read_float(bm_ptr + off + 0x2C)
+    if bz_ &gt; highest_bz:
+        highest_bz = bz_
+        best_bone  = (bx_, by_, bz_)</pre>
+    <p>The bone matrix paid off twice. For ESP: the highest head bone gives an exact point to
+      draw a head circle on, and the full bone set enables a skeleton overlay instead of just a
+      flat box. For the aimbot — which hadn't been started yet — it would give a real head
+      position to target. Without the bone matrix, an aimbot can only estimate the head as a
+      fixed offset above the feet, which drifts whenever the player crouches, leans, or plays
+      an animation. One piece of reverse engineering; two payoffs.</p>
+
+    <h3>Flicker — The Tkinter Threading Problem</h3>
+    <p>Early ESP versions flickered badly. The cause: calling <code>canvas.create_rectangle()</code>
+      from a background thread. Tkinter's internal state is not thread-safe — concurrent access
+      from the ESP thread and the main event loop produced intermittent corruption and visual
+      tearing. The fix was ensuring all canvas operations ran on the main thread. The final
+      architecture runs the ESP loop as the main thread content and uses
+      <code>time.sleep(0.03)</code> as the frame gate, giving ~33 fps without any cross-thread
+      canvas access.</p>
+
+    <h3>Threading Architecture</h3>
+    <p>By the end of Stage 3 there were already multiple concurrent concerns: entity data needed
+      to update at a different rate than the drawing loop. The architecture that emerged across
+      the whole project is a thread-per-feature model using a shared dict as the message bus:</p>
+    <table>
+      <thead><tr><th>Thread</th><th>Interval</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td>detect_local_player</td><td>10 s</td><td>Fingerprints local entity index and team</td></tr>
+        <tr><td>update_entity_info</td><td>100 ms</td><td>Fills entity position cache</td></tr>
+        <tr><td>esp_loop</td><td>30 ms</td><td>Owns all canvas drawing (≈33 fps)</td></tr>
+        <tr><td>aimbot_thread</td><td>10 ms</td><td>Reads angles, writes corrected values</td></tr>
+        <tr><td>radar_thread</td><td>50 ms</td><td>Writes entity visibility flags</td></tr>
+        <tr><td>triggerbot_thread</td><td>10 ms</td><td>Monitors pointer chain, fires on change</td></tr>
+        <tr><td>combined_hotkey_listener</td><td>event</td><td>pynput callbacks for all hotkeys</td></tr>
+      </tbody>
+    </table>
+    <p>Race conditions exist but are tolerated. Python's GIL makes individual dict reads and
+      writes atomically safe for simple scalar values — a stale read produces at worst a
+      miscoloured box for one frame, not a crash. In production code this warrants
+      <code>threading.Lock()</code> around critical sections. Here it was a conscious tradeoff
+      given the cosmetic-only failure mode.</p>
+
+    <!-- ============================================================ -->
+    <h2>Stage 4 — Aimbot: Writing Back</h2>
+
+    <p>Reading game state is one kind of access. Writing to it is another. With entity positions
+      and bone matrices solved, the aimbot was next: read the current view angles, compute where
+      they need to point, write the corrected values back — overriding what the mouse produced.
+      This is <code>WriteProcessMemory</code> used offensively.</p>
+
+    <h3>Finding the View Angle Pointer</h3>
+    <p>View angles (pitch and yaw, stored as floats) live behind a two-level pointer rooted
+      in <code>stdshader_dx9.dll</code> — a non-obvious location that took another CE pointer
+      scan to find. The same methodology as <code>localPlayer</code>: scan for a known value
+      (current pitch while looking at a fixed point), trace back through the access instruction
+      to the base register, scan for what holds that address in a module's static segment.</p>
+
+    <h3>Angle Math and the Yaw Wrap Problem</h3>
+    <p>Computing the required angle to a target is straightforward trigonometry:</p>
+    <span class="label">angle calculation — atan2 pitch/yaw</span>
+    <pre>def calc_angle(src, dst):
+    dx, dy, dz = dst[0]-src[0], dst[1]-src[1], dst[2]-src[2]
+    hyp = math.sqrt(dx*dx + dy*dy)
+    return -math.degrees(math.atan2(dz, hyp)), math.degrees(math.atan2(dy, dx))</pre>
+    <p>Pitch is negated because CS:GO's coordinate system has positive pitch pointing downward.
+      Yaw wrapping is the subtle problem. Angles live in (−180, 180] and when a target crosses
+      the ±180° boundary, naive subtraction gives a ~360° jump instead of a small step.
+      <code>angle_diff</code> normalises it:</p>
+    <pre>def angle_diff(a1, a2):
+    dp = a1[0] - a2[0]
+    dy = ((a1[1]-a2[1])+180) % 360 - 180
+    return math.sqrt(dp*dp + dy*dy)</pre>
+    <div class="breakdown">
+      <span class="step">the yaw wrap problem</span>
+      <p>Imagine the local player faces 179° and the target is at −179°. The real gap is 2°.
+        Naive subtraction gives <code>179 − (−179) = 358°</code> — the long way around the
+        circle. This makes the target appear to be 358° outside the FOV cone and it's never
+        selected. The formula <code>((a1−a2) + 180) % 360 − 180</code> fixes it: the result is
+        always the shortest angular distance between two headings regardless of which side of the
+        ±180° boundary they sit on. This same issue appeared again later inside the Bezier
+        interpolation and had to be fixed there too.</p>
+    </div>
+
+    <h3>Bezier Smoothing</h3>
+    <p>Writing the corrected angle directly to memory in one frame produces a velocity spike —
+      an instantaneous delta of potentially 90°+ in 10ms, which is physically impossible for
+      a human wrist. Anti-cheat systems that log view angle deltas per frame flag this as a
+      statistical outlier. The aim interpolates along a cubic Bezier curve instead:</p>
+    <span class="label">bezier smooth angle — cubic interpolation</span>
+    <pre>def bezier_smooth_angle(current, target, t):
+    p0, y0 = current
+    p3, y3 = target
+    p1 = p0 + (p3-p0)*0.25
+    p2 = p0 + (p3-p0)*0.75
+    y1 = y0 + ((y3-y0+180)%360-180)*0.25
+    y2 = y0 + ((y3-y0+180)%360-180)*0.75
+    return bezier_point(p0,p1,p2,p3,t), bezier_point(y0,y1,y2,y3,t)</pre>
+    <div class="breakdown">
+      <span class="step">the cubic bernstein formula</span>
+      <p><code>bezier_point</code> evaluates
+        <code>B(t) = (1−t)³·P0 + 3(1−t)²t·P1 + 3(1−t)t²·P2 + t³·P3</code>.
+        At <code>t = 0</code> the result is exactly P0 (current angle). At <code>t = 1</code>
+        the result is exactly P3 (target angle). Between them the four terms blend smoothly,
+        weights always summing to 1.</p>
+      <span class="step">ease-in/ease-out from control point placement</span>
+      <p>Placing the control points at 25% and 75% along the direct line from start to target
+        keeps the curve on the direct angular path — no sideways deviation — while the cubic
+        weighting still produces natural acceleration at the start and deceleration at the end.
+        This is what makes per-frame deltas statistically indistinguishable from fast human
+        mouse input.</p>
+      <span class="step">yaw wrapping inside bezier</span>
+      <p>The same shortest-path formula from <code>angle_diff</code> is applied to the control
+        point offsets. Without it, interpolating across the ±180° boundary sweeps 340° the long
+        way around the circle instead of the 20° short way.</p>
+    </div>
+
+    <h3>FOV Cone</h3>
+    <p>The aimbot only considers targets within a configurable angular distance from the current
+      crosshair — the FOV cone. This is controlled by <code>desired_fov</code> (1°–30°):</p>
+    <span class="label">fov gate — target selection</span>
+    <pre>best_fov = shared["desired_fov"]
+...
+fov = angle_diff(angle, (cp, cy))
+if fov &lt; best_fov:
+    best_fov   = fov
+    best_angle = angle
+    new_target = ent_ptr</pre>
+    <p>Among all enemies inside the cone, the one with the smallest angular offset wins. A tight
+      FOV (1°–3°) requires manual pre-aim near the head before the lock engages. A wide FOV
+      (15°–30°) activates across much of the screen and is a statistical signature detectable by
+      timing analysis — a wide-FOV lock that engages without prior manual aim is not plausible
+      human input. Keeping it small keeps the behaviour within the range of what a precise
+      human player could produce.</p>
+
+    <h3>Recoil Correction</h3>
+    <p>Writing the correct angle to a stationary target is one problem. Keeping it there while
+      the gun fires is another. Automatic weapons produce upward spray — the game shifts the
+      view angle upward with each shot, overriding the previous write. The correction is a
+      running pitch offset that accumulates while firing:</p>
+    <span class="label">recoil compensation — live pitch offset</span>
+    <pre>if shared["firing"]:
+    if shared["left_hold_start"] is None:
+        shared["left_hold_start"] = time.time()
+    if time.time() - shared["left_hold_start"] &gt;= 0.05:
+        shared["current_pitch_correction"] = min(
+            shared["current_pitch_correction"] + shared["correction_speed_2"] * shared["recoil"],
+            54.0
+        )</pre>
+    <p>Getting <code>correction_speed_2</code> right required iterative live testing — too fast
+      and the aim overcorrects and dips below the target, too slow and it can't keep pace with
+      the spray. F4/F5/F6 hotkeys set presets (40 / 55 / 20) because the right value varies
+      by weapon fire rate. This was one of the few parts of the project that required genuine
+      trial-and-error tuning against live gameplay rather than derivation from memory structure.</p>
+    <p>The pointer chain for the view angles was also fragile across game updates — the same
+      break-and-re-source cycle from the offset research phase, just applied to a more
+      deeply nested chain rooted in a different module. The patience required is the same
+      each time.</p>
+
+    <!-- ============================================================ -->
+    <h2>Stage 5 — Triggerbot: Work in Progress</h2>
+
+    <p>The triggerbot was the last feature added and is the least finished. It doesn't detect
+      crosshair contact geometrically — it monitors a specific memory value via a pointer chain
+      and fires the mouse when that value changes. When the crosshair crosses an enemy hitbox, a
+      game-internal counter updates. The triggerbot watches that counter:</p>
+    <span class="label">triggerbot — pointer chain and fire logic</span>
+    <pre>TB_POINTER_BASE = 0x00DEF97C
+TB_OFFSETS      = [0x24, 0x4, 0x68]
+
+ptr   = tb_resolve_pointer(pm, client + TB_POINTER_BASE, TB_OFFSETS)
+value = tb_read_value(pm, ptr, "FLOAT")
+
+elif value != prev_value:
+    m.press(mouse.Button.left)
+    time.sleep(0.05)
+    m.release(mouse.Button.left)</pre>
+    <p>This approach is more robust than geometric detection — it uses the game's own hit
+      detection logic rather than external math that might disagree with the server. The tradeoff
+      is brittleness: the pointer chain breaks on game updates and requires re-sourcing from
+      Cheat Engine each time. The triggerbot hasn't had the same methodical hardening as the
+      aimbot; it's a quick first pass that works but has known rough edges.</p>
+    <p>A zero-latency instant click is a statistical anomaly — no human reaction time is that
+      fast. Anti-cheat systems that maintain timing histograms of click events will flag inputs
+      outside the human-achievable minimum latency. A slider in the GUI exposes this directly:
+      the delay is tunable from 0 to 250ms at runtime, making the tradeoff between
+      responsiveness and detectability something you have to actively reason about rather than
+      a hardcoded constant someone else chose.</p>
+
+    <!-- ============================================================ -->
+    <h2>How This Maps to Security Research</h2>
+
+    <p>Every component of this project has a direct parallel in real security work. The mapping
+      is not metaphorical — it is the same API calls, the same methodology, applied to a
+      different target. The reason to build it is that you cannot fake the understanding that
+      comes from having actually done it. Reading about <code>ReadProcessMemory</code> is not
+      the same as watching Windows Defender quarantine your binary because of what
+      <code>ReadProcessMemory</code> in the import table implies about intent.</p>
+
+    <h3>ReadProcessMemory as a Research Primitive</h3>
+    <p>This is exactly what a debugger does when it reads a target process's memory. What a
+      memory forensics tool does against a live malware sample in Volatility or Rekall. What a
+      vulnerability researcher does when they attach to a process under x64dbg and inspect the
+      heap after a controlled allocation. The primitive is <code>ReadProcessMemory</code> in all
+      cases. Building a tool that calls it directly — without the debugger abstraction layer —
+      makes the underlying mechanism concrete in a way that reading documentation does not.</p>
+
+    <h3>AV Heuristics and the Import Table</h3>
+    <p>The C++ prototype being quarantined before it ever ran is a security lesson in its own
+      right. The binary did nothing — it hadn't executed. The AV acted on static characteristics:
+      <code>OpenProcess</code>, <code>ReadProcessMemory</code>, and <code>WriteProcessMemory</code>
+      together constitute a capability fingerprint that matches process injection tools and
+      credential theft malware. A malware analyst triaging an unknown binary runs the same
+      analysis in the same order: import table first, then strings, then dynamic behaviour.
+      Understanding why the tool was flagged is understanding how that first-pass triage works.
+      It also surfaces the bypass: resolving imports dynamically via <code>GetProcAddress</code>
+      at runtime removes them from the static import table and defeats that heuristic. The
+      heuristic and the bypass are two sides of the same knowledge.</p>
+
+    <h3>Dynamic Analysis with a Known-Value Scan</h3>
+    <p>The Cheat Engine methodology — known value, change, narrow, repeat — is a specific
+      instance of using known program outputs to locate the internal state that produced them.
+      In exploit research: allocate a controlled-size buffer, locate it in the heap, establish
+      its offset from a disclosure gadget. In firmware analysis: send a known command, find the
+      response buffer, trace backward to the processing function. The game provides the fastest
+      feedback loop. The <code>cmp dword ptr [esi+00000158], 02</code> instruction that confirmed
+      the teamNum offset is the same disassembly view a researcher sees when breaking on a
+      comparison in a binary they're reversing.</p>
+
+    <h3>Pointer Chain Traversal</h3>
+    <p>Walking a multi-level pointer chain to locate a target object in a live heap is the same
+      skill used in use-after-free exploitation: understanding object lifetimes, pointer graphs,
+      and what memory looks like after a free. It's the same skill used when tracing how a
+      global pointer leads to an object, leads to a vtable, leads to a function in IDA. The
+      <code>localPlayer</code> pointer scan — thousands of candidates, multiple rescan cycles,
+      VEH debugger to bypass the access violation — is what that analysis looks like when it
+      requires patience rather than just knowledge. The patience is non-trivial and it doesn't
+      come from reading about it.</p>
+
+    <h3>WriteProcessMemory and Process Injection</h3>
+    <p>The aimbot writes floats to view angle addresses. The radar writes integers to entity flag
+      fields. The API call for both is <code>WriteProcessMemory</code>. This is structurally
+      identical to the write step in shellcode injection: allocate memory in the target process
+      with <code>VirtualAllocEx</code>, write the payload with <code>WriteProcessMemory</code>,
+      execute it with <code>CreateRemoteThread</code>. The target here is a game field rather
+      than a shellcode stub, but the Windows API call is identical. Building something that
+      exercises the write primitive makes the mechanism real before approaching more constrained
+      injection scenarios.</p>
+
+    <h3>Anti-Cheat as the Defender Model</h3>
+    <p>VAC, EAC, and Vanguard are doing the same thing this tool does, from the other direction:
+      scanning for unauthorised <code>ReadProcessMemory</code> calls, looking for injected
+      modules in the process module list, monitoring write frequency to protected addresses,
+      checking for RWX memory regions that don't correspond to a loaded DLL. The triggerbot's
+      humanisation delays are a direct response to timing-histogram detection. The Bezier
+      smoothing is a direct response to angular velocity spike detection. Building the attacker
+      side is the prerequisite for understanding what the defender must actually measure —
+      which is the prerequisite for building detection that works. You cannot reason clearly
+      about one without having understood the other.</p>
+    <p>All the techniques here operate in userspace, which means they're visible to any
+      kernel-mode monitor. A <code>ReadProcessMemory</code> call is observable via kernel
+      callbacks (<code>PsSetLoadImageNotifyRoutine</code>, ETW providers, minifilter drivers).
+      Kernel-mode anti-cheat like Vanguard exists precisely because userspace detection is
+      bypassable with userspace tools — the same tools this project is built with. Understanding
+      what moves to ring-0 to become undetectable is the natural next question.</p>
+
+    <!-- ============================================================ -->
+    <h2>Known Issues &amp; Open Problems</h2>
+
+    <p>This is the honest state of each feature. Most of what's listed here isn't a failure of
+      understanding — it's the gap between a first working implementation and a hardened one.
+      Documenting it is part of the point.</p>
+
+    <h3>Triggerbot — Fires on Teammates</h3>
+    <p>The triggerbot monitors a game-internal pointer chain for crosshair contact and fires when
+      the value changes. The problem: that value changes on <em>any</em> entity crossing the
+      crosshair, not only enemies. Teammates trigger it just as reliably as enemies do. The
+      current implementation has no team filter — it doesn't cross-reference the entity under
+      the crosshair against the local player's team before firing.</p>
+    <p>The fix is conceptually straightforward: resolve which entity the crosshair is over at
+      the moment of trigger, read its <code>m_iTeamNum</code>, and suppress the click if the
+      teams match. The difficulty is that the pointer chain used by the triggerbot leads to a
+      raw floating-point value that changes on contact — it doesn't expose the entity index
+      directly. Bridging the triggerbot's contact signal to the entity list to retrieve the
+      team field is the open engineering problem. Until it's solved, the triggerbot can only
+      be used safely when there are no friendly players in the field of view.</p>
+
+    <h3>Aimbot — Ghost Flicks</h3>
+    <p>The aimbot occasionally snaps toward a position in empty space — a brief flick to a
+      location where no visible enemy exists. This is a ghost box problem downstream: the aimbot
+      targets whatever the entity list and bone matrix resolve to, and if the entity list
+      contains a ghost entry (see below), the aimbot will aim at it with full confidence.
+      The aimbot itself has no way to distinguish a real enemy from a stale entity struct —
+      it reads the bone position and writes the angle regardless. Solving it requires solving
+      the ghost box problem at the entity filtering level, not at the aimbot level.</p>
+
+    <h3>ESP — Ghost Boxes</h3>
+    <p>The ESP draws boxes around entities whose health reads as greater than zero. In practice
+      it sometimes draws boxes at positions where no enemy is actually present — boxes that
+      float in the air, pass through walls, or sit at a location an enemy occupied minutes ago.
+      These are ghost boxes: entries in the entity list that are no longer active players but
+      whose struct still contains partially populated data that passes the alive-and-valid
+      checks.</p>
+    <p>One hypothesis for why they appear consistently in this mod: Classic Offensive may
+      implement server-side entity culling similar to how Valorant handles it — where the server
+      only sends enemy position data to your client when those enemies are close enough to be
+      relevant, keeping the rest in a stale or dormant state. In Valorant this is an explicit
+      anti-wallhack measure; the client literally doesn't have position data for enemies outside
+      the fog-of-war radius. A Source-engine mod built on CS:GO's framework could have a
+      comparable system where entities outside a proximity threshold aren't updated by the
+      server, leaving their struct values frozen at their last known position. The ESP reads
+      those frozen values and draws a box, but the enemy may be on the other side of the
+      map — or may have disconnected entirely.</p>
+    <p>A ghost detection heuristic was attempted: flag entities whose XYZ position hasn't
+      changed across several consecutive reads as potential ghosts and suppress them. It doesn't
+      work reliably. The fundamental flaw is that a real player camping at a fixed position will
+      also produce an unchanging XYZ value — a player holding an angle from behind cover, or
+      standing still watching a site, is indistinguishable from a stale entity struct by position
+      alone. A legitimate camper would be invisible to the ESP while the ghost detection is
+      active, which inverts the tool's purpose. The heuristic was removed; the ghost box
+      problem remains open. A better approach would cross-reference against the active player
+      bitmask the engine maintains, but that field hasn't been located yet for this build.</p>
+
+    <h3>Aimbot — Recoil Compensation Is Crude</h3>
+    <p>The current recoil correction is a time-based pitch accumulator that ramps up while the
+      left mouse button is held and caps at 54 degrees. It requires weapon-specific presets
+      (F4/F5/F6) because the right accumulation rate varies by fire rate and spray pattern. Get
+      it slightly wrong and the aim either overcorrects and dips below the target, or lags behind
+      the spray and drifts upward. It is tuned manually against live gameplay, not derived from
+      anything the game actually knows.</p>
+    <p>The more elegant solution reads recoil compensation directly from the game's own data.
+      The Source engine stores the current punch angle — the recoil offset the game is applying
+      to the view — in the local player struct as <code>m_vecPunchAngle</code>. That value is
+      already the exact correction needed: it is what the game is adding to the base view angle
+      to produce the spray. Subtracting it from the desired aim angle before writing gives
+      frame-accurate recoil correction with no presets, no tuning, and no weapon-specific
+      constants. It would work correctly for every weapon automatically because it reads the
+      value the engine is already computing rather than trying to approximate it from a timer.
+      The offset for <code>m_vecPunchAngle</code> on this build hasn't been found yet, which
+      is why the crude version is still in place.</p>
+
+    <h3>ESP — CT Skeleton Broken</h3>
+    <p>The skeleton overlay works correctly on Terrorist player models and produces a garbled,
+      incorrect result on Counter-Terrorist models. The bone matrix read logic uses bone IDs
+      6, 8, and 12 for the head/neck region — these IDs were found by iterating through bone
+      positions on a T-side model and identifying the ones with the highest Z values (the head
+      bones). CT player models use a different skeleton hierarchy with different bone IDs for
+      the equivalent joints. The same IDs read against a CT model land on different bones —
+      shoulders, spine, or nowhere meaningful — producing a skeleton that is connected
+      incorrectly and drawn in the wrong positions.</p>
+    <p>Finding the correct bone IDs for the CT skeleton requires repeating the bone matrix
+      iteration on a CT-side model specifically: force-joining CT, freezing a bot in a known
+      pose, iterating all bone IDs and logging their world-space Z values, then identifying
+      which IDs correspond to the head and upper body. This hasn't been done yet. Until it is,
+      the skeleton overlay is disabled on CT entities and only the flat bounding box is drawn.</p>
+    <div class="shots">
+      <img src="../img/ct-skeleton-bug.png" alt="CT skeleton rendering incorrectly — bones connecting to wrong joints on CT player model">
+    </div>
+    <p class="vid-cap">fig. 2 — CT skeleton bug: bone IDs sourced from T model map to incorrect joints on CT hierarchy</p>
+
+    <!-- ============================================================ -->
+    <h2>Current State &amp; What Comes Next</h2>
+
+    <p>The tool is a research artefact built against a specific target: <strong>CS:CO
+      (Counter-Strike: Classic Offensive)</strong>, a community mod that blends CS:GO,
+      Counter-Strike: Source, and CS 1.6 into a single client. Its hybrid engine lineage means
+      the offsets don't cleanly match any published offset list. Every address was sourced
+      independently against this specific binary. The triggerbot is the most obviously unfinished
+      part — it works but hasn't had the same methodical hardening as the earlier stages, and
+      the pointer chain it monitors is brittle.</p>
+    <p>The natural next direction is kernel-level work. Everything here is userspace, which means
+      it's visible to a kernel-mode monitor. Understanding what moves to ring-0 — driver
+      development, IOCTL analysis, kernel vulnerability research — is the same question the GPU
+      passthrough project approaches from the anti-cheat evasion angle. The two projects are
+      the same question asked from opposite sides.</p>
+
+    <div class="note"><p><strong>Note.</strong> Built on hardware and a game licence I own,
+      as a personal research project for understanding Windows process memory, the Win32 security
+      model, and the technical basis of game anti-cheat. Not used in online multiplayer against
+      other players.</p></div>
+
+    <p>POC:</p>
+    <div class="video">
+      <iframe src="https://www.youtube.com/embed/s0z4qB3la-s" title="POC" allowfullscreen></iframe>
+    </div>
+    <p class="vid-cap">fig. 1 — Proof of Concept</p>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+<div class="lightbox" id="lightbox">
+  <span class="x">✕</span>
+  <img id="lightbox-img" src="" alt="">
+</div>
+<script>
+  (function(){
+    var lb = document.getElementById('lightbox');
+    var lbImg = document.getElementById('lightbox-img');
+    document.querySelectorAll('.shots img').forEach(function(img){
+      img.addEventListener('click', function(){
+        lbImg.src = img.src;
+        lbImg.alt = img.alt;
+        lb.classList.add('open');
+      });
+    });
+    lb.addEventListener('click', function(){ lb.classList.remove('open'); });
+    document.addEventListener('keydown', function(e){
+      if(e.key === 'Escape') lb.classList.remove('open');
+    });
+  })();
+</script>
+</body>
+</html>

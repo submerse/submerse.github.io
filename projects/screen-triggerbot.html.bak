@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Screen-Based Detection Evasion // HANDLE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 06 · anti-cheat research</div>
+      <h1>Screen-Based Detection Evasion</h1>
+      <div class="meta"><span>Python</span><span>computer vision</span><span>anti-cheat</span><span>detection</span><span>telemetry</span></div>
+    </header>
+
+    <h2>Research question</h2>
+    <p>Kernel-level anti-cheats like Vanguard and EAC are built around one core assumption: a cheat
+      has to <em>touch the game</em> — read its memory, inject a module, hook a function — and that
+      contact is what gets detected. This project asks the uncomfortable follow-up: what about a
+      cheat that never touches the game at all? I built a screen-only color triggerbot to study
+      exactly where that assumption breaks, and what defenders would have to do instead.</p>
+
+    <h2>How the technique works</h2>
+    <p>The tool never reads game memory. It only looks at the screen, the same pixels a human sees:</p>
+    <ul>
+      <li><strong>Region capture:</strong> grabs a small box around the crosshair with <code>mss</code>, many times per second.</li>
+      <li><strong>Color matching:</strong> reshapes the frame into a pixel array and tests it against target colors within a tolerance in NumPy — i.e. "is an enemy highlight under the crosshair right now?"</li>
+      <li><strong>Input timing:</strong> when the condition is met (and an activation key is held), it issues a keypress, with configurable first-shot and follow-up delays.</li>
+      <li><strong>Movement gating:</strong> suppresses firing while movement keys are down, to avoid obvious non-human behaviour.</li>
+    </ul>
+    <p>The whole pipeline is screen-in, input-out. From the operating system's point of view it's a
+      program taking screenshots and pressing a key — activity that is indistinguishable from
+      legitimate software.</p>
+
+    <h2>Why this is hard for kernel anti-cheat</h2>
+    <p>This is the actual finding, and it's a defender's problem, not an attacker's bragging right:</p>
+    <ul>
+      <li><strong>No memory footprint:</strong> there are no reads or writes to the game process, no injected DLL, no hooks — so the techniques anti-cheat relies on for high-confidence detection have nothing to bite on.</li>
+      <li><strong>Mundane API surface:</strong> screen capture and synthetic input are used by thousands of legitimate apps (streaming, accessibility, automation), so their mere presence isn't evidence of anything.</li>
+      <li><strong>The cost curve flipped:</strong> screen analysis used to be too slow to be practical. It isn't anymore — modern CPUs and GPUs can inspect every frame with room to spare, so "watch the pixels" is now computationally free for an attacker. The technical barrier that used to make this class of cheat rare has effectively disappeared.</li>
+    </ul>
+
+    <h2>Where detection has to move</h2>
+    <p>If you can't catch the tool by watching the process, you have to catch the <em>player</em>.
+      The logical consequence is that anti-cheat shifts from inspecting binaries to modelling behaviour
+      and hardware:</p>
+    <ul>
+      <li><strong>Behavioural telemetry:</strong> reaction-time distributions, the statistical signature of a shot fired faster or more consistently than a human plausibly could, flick/aim curves.</li>
+      <li><strong>Server-side analysis:</strong> moving detection off the trusted-but-bypassable client to aggregate patterns the client can't hide.</li>
+      <li><strong>Hardware &amp; environment attestation:</strong> identifying the machine and its configuration to spot ban evasion and anomalous setups — see below.</li>
+    </ul>
+
+    <h2>Machine identification &amp; fingerprinting</h2>
+    <p>One component worth calling out on its own, because it's a defender technique as much as an
+      attacker one. The project includes machine identification — deriving a stable hardware-tied
+      identifier (here via the network adapter's hardware ID exposed through <code>uuid.getnode()</code>)
+      plus a system-info profile (OS, version, CPU count, platform string).</p>
+    <p>The same primitive sits underneath real defensive systems: <strong>device fingerprinting</strong>
+      for ban evasion and fraud detection, binding a session to a machine, and detecting when one
+      identity suddenly appears on hardware it never used before. Studying it here — how stable the
+      identifier is, how easily it can be spoofed, what a more robust fingerprint would combine —
+      is directly the same analysis an anti-cheat or anti-fraud team does when deciding how much to
+      trust a client-reported ID. A hardware-MAC-derived ID, for instance, is trivially changed; that
+      limitation is exactly why production systems layer multiple weak signals instead of trusting one.</p>
+
+    <h2>How it maps to security work</h2>
+    <p>This is detection engineering from the evasion side: understanding why a control fails tells
+      you how to build a better one. The transferable thinking — trusted vs. untrusted execution
+      boundaries, why client-side detection is fundamentally limited, moving to behavioural and
+      server-side signals, the strengths and weaknesses of device fingerprinting — is the same
+      reasoning behind <strong>EDR evasion analysis</strong>, <strong>fraud detection</strong>, and
+      <strong>anti-abuse</strong> work. The game is just a well-instrumented lab for the general
+      problem of detecting an adversary who's trying not to be detected.</p>
+
+    <div class="note"><p><strong>Context &amp; ethics.</strong> A personal research project, run only
+      against bots / offline targets on my own systems to study the detection problem. It was not
+      deployed against live players or distributed to anyone. The point of the work is understanding
+      how defenders should respond to screen-based evasion — not providing a usable cheat, and no
+      runnable tool is published here.</p></div>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+</body>
+</html>

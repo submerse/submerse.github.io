@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Detecting Hardware Input Emulation // submerse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+  /* page-local additions, built from the shared Nord tokens */
+  table { width:100%; border-collapse:collapse; margin:8px 0 22px; font-family:var(--mono); font-size:13.5px; }
+  th { text-align:left; color:var(--accent); border-bottom:2px solid var(--line); padding:8px 10px; }
+  td { color:var(--text-dim); border-bottom:1px solid var(--line); padding:7px 10px; vertical-align:top; }
+  tr:nth-child(even) td { background:var(--bg-card); }
+  .spec-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; margin:10px 0 24px; }
+  .spec-card { background:var(--bg-card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
+  .spec-card .k { font-family:var(--mono); color:var(--magenta); font-size:0.92rem; font-weight:600; margin-bottom:5px; }
+  .spec-card .v { font-family:var(--sans); color:var(--text-dim); font-size:0.86rem; line-height:1.55; }
+  .flow { display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; margin:10px 0 24px; font-family:var(--mono); }
+  .flow .node { flex:1 1 130px; background:var(--bg-card); border:1px solid var(--line); border-radius:8px;
+                padding:12px 12px; font-size:12.5px; color:var(--text-dim); }
+  .flow .node b { display:block; color:var(--accent); font-size:12px; margin-bottom:4px; }
+  .flow .node small { color:var(--text-faint); font-size:11px; }
+  .flow .arrow { align-self:center; color:var(--magenta); font-family:var(--mono); font-size:18px; }
+  .codecap { font-family:var(--mono); font-size:12.5px; color:var(--text-faint); margin:-8px 0 22px; }
+  .step { font-family:var(--mono); color:var(--magenta); font-size:13px; letter-spacing:1px; margin:34px 0 -6px; }
+  .pitfall { border-left:2px solid var(--accent-dim); background:var(--bg-card);
+             padding:14px 16px; border-radius:0 8px 8px 0; margin:18px 0 22px; }
+  .pitfall p { margin:0; font-size:14.5px; }
+  .pitfall .lbl { font-family:var(--mono); color:var(--accent); font-size:12px; letter-spacing:1px; text-transform:uppercase; }
+  .doc pre b.hl { color:var(--accent); font-weight:600; }
+  .doc pre i.cm { color:var(--text-faint); font-style:normal; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav>
+    <span class="logo">submerse</span>
+    <div class="links">
+      <a href="../index.html">home</a>
+      <a href="../index.html#projects">projects</a>
+    </div>
+  </nav>
+</div>
+
+<div class="wrap narrow doc">
+
+  <header>
+    <div class="tag">project 07 · anti-cheat research</div>
+    <h1>Detecting Hardware Input Emulation</h1>
+    <div class="meta">
+      <span>HID security</span><span>anti-cheat</span><span>USB</span>
+      <span>ATmega32u4</span><span>USB host shield</span><span>behavioural detection</span><span>firmware fingerprinting</span>
+    </div>
+  </header>
+
+  <!-- ============================ START ============================ -->
+  <h2>Start — the research question</h2>
+  <p>
+    Most game cheats live <em>on</em> the computer: they read game memory, inject a DLL, or hook the
+    renderer. Kernel anti-cheat is built to find exactly that. So the most interesting class of cheat,
+    from a defender's point of view, is the one that moves the logic <strong>off the host entirely</strong>
+    and feeds its decisions back in through a channel the operating system already trusts completely: a
+    USB mouse.
+  </p>
+  <p>
+    A microcontroller with a native USB stack — here an <strong>Arduino Leonardo (ATmega32u4)</strong> —
+    can present itself to the PC as an ordinary HID mouse. Pair it with a <strong>USB host shield</strong>
+    so the player's real mouse plugs into the Arduino instead of the PC, and you have a device that sits
+    physically in the input path. A second process watches the screen, decides where the crosshair should
+    be, and whispers correction deltas to the Arduino over a serial link. The Arduino adds those movements
+    on top of the real mouse's, and emits one clean HID report stream. To Windows, <em>it is a mouse.</em>
+  </p>
+  <p>
+    The question I set out to answer was not "how do I build this" — that part is well-trodden and public.
+    It was the defender's question: <strong>if the input arrives through a genuine HID device, what is
+    actually left to detect?</strong> To answer it honestly I had to build the thing end-to-end, on my own
+    bench, against bots and offline targets only — because you can't reason credibly about a technique's
+    detection surface until you've seen exactly where its seams are. This write-up is the result: the
+    hardware, the interfacing code that matters, and — the real point — every place the build fought me,
+    because each of those friction points turned out to be a signal a defender can key on.
+  </p>
+
+  <!-- ============================ MIDDLE ============================ -->
+  <h2>The hardware</h2>
+  <p>
+    The whole technique rests on one feature of the microcontroller: a <strong>native USB device
+    controller</strong>. A classic Arduino Uno (ATmega328P) can't do this — it reaches the PC through a
+    separate USB-to-serial chip and can only ever look like a COM port. The Leonardo / Pro Micro family
+    uses the <strong>ATmega32u4</strong>, whose USB peripheral is wired straight into the chip, so the
+    firmware itself decides what kind of device to enumerate as. With the stock <code>Mouse.h</code>
+    library it declares an HID mouse interface — the same descriptor class a retail mouse uses.
+  </p>
+
+  <div class="spec-grid">
+    <div class="spec-card"><div class="k">MCU</div><div class="v">ATmega32u4 — 8-bit AVR with an on-die full-speed USB device controller. The reason a $10 board can <em>be</em> a mouse rather than just talk to one.</div></div>
+    <div class="spec-card"><div class="k">Mouse.h (core HID)</div><div class="v">Exposes <code>Mouse.begin()</code>, <code>Mouse.move(dx,&nbsp;dy,&nbsp;wheel)</code>, <code>Mouse.press/release</code>. Movement deltas are <strong>signed bytes</strong>.</div></div>
+    <div class="spec-card"><div class="k">USB Host Shield</div><div class="v">A MAX3421E-based shield that makes the Arduino a USB <em>host</em>, so the player's real mouse plugs into it. Driven by <code>hidboot.h</code> + <code>usbhub.h</code>.</div></div>
+    <div class="spec-card"><div class="k">Serial link</div><div class="v">The Leonardo's USB also enumerates a CDC virtual COM port (115200 baud). This is the back-channel Python uses to push correction deltas — and, as it turns out, a fingerprint.</div></div>
+  </div>
+
+  <p>The device therefore plays two roles at once, which is the clever part of the topology:</p>
+  <ul>
+    <li><strong>Pass-through.</strong> The host shield reads the real mouse's HID reports and the firmware
+      re-emits them with <code>Mouse.move()</code>, so the player's hand still moves the cursor normally.</li>
+    <li><strong>Injection.</strong> In the same loop, the firmware reads correction deltas arriving over
+      serial and folds them into the same outgoing report stream.</li>
+  </ul>
+  <p>From the host's side there is only one cursor, moving smoothly, from one USB mouse. The blend of human and machine has already happened in firmware, below the level any software API can see.</p>
+
+  <h2>The signal pipeline</h2>
+  <div class="flow">
+    <div class="node"><b>1 · Capture</b>a square region centred on the crosshair<small>screen → frame</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>2 · Detect</b>object detection finds targets, returns boxes<small>frame → df</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>3 · Aim vector</b>pick nearest target, compute pixel delta to it<small>df → dx,dy</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>4 · Serial</b>encode delta, send over COM<small>dx,dy → bytes</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>5 · HID</b>Arduino emits <code>Mouse.move</code><small>bytes → USB</small></div>
+  </div>
+  <p>
+    Stages 1–3 are ordinary computer vision and run on the PC; they are the "brain." Stages 4–5 are the
+    hardware bridge — the part this project actually exists to study, because that boundary is where the
+    detection problem is won or lost. The walkthrough below follows a delta through that boundary and stops
+    at each seam to ask: <em>what does this leave behind?</em>
+  </p>
+
+  <h2>Walkthrough — the code that matters</h2>
+  <p>
+    These are trimmed, representative excerpts to explain the mechanism, not a build kit — the detection
+    discussion is the payload. Each block is paired with what it costs the attacker in detectability.
+  </p>
+
+  <div class="step">STEP 1 — turning a target into an aim vector</div>
+  <p>
+    After detection returns candidate boxes, the brain picks one target and works out how far the crosshair
+    has to travel. The capture region is centred on the crosshair, so screen-centre is just half the region
+    (<code>cWidth</code>, <code>cHeight</code>); the move is simply target-minus-centre, nudged up toward the
+    head:
+  </p>
+  <pre><i class="cm"># nearest target to the crosshair = smallest distance from centre</i>
+targets["dist"] = np.sqrt((targets.mid_x - cWidth)**2 + (targets.mid_y - cHeight)**2)
+target = targets.sort_values("dist").iloc[0]
+
+<i class="cm"># aim a little above box-centre so the shot lands on the head</i>
+head_offset = target.height * (0.38 if headshot_mode else 0.20)
+
+<i class="cm"># pixel delta from crosshair to aim point</i>
+mouseMove = [target.mid_x - cWidth, (target.mid_y - head_offset) - cHeight]
+
+<i class="cm"># scale by an "aim amplitude" — lower = softer/slower, less obvious</i>
+dx = mouseMove[0] * <b class="hl">aaMovementAmp</b>
+dy = mouseMove[1] * <b class="hl">aaMovementAmp</b></pre>
+  <p class="codecap">target selection &amp; aim-vector math — the "brain" output, before it ever reaches hardware</p>
+  <p>
+    The interesting variable is <code>aaMovementAmp</code>. At <code>1.0</code> the crosshair snaps onto the
+    target in a single frame — lethal, and trivially superhuman. Every attempt to make the cheat
+    <em>look</em> human is really an attempt to tune this value (and add smoothing) downward until the motion
+    sits inside a plausible reaction-time and acceleration envelope. <strong>That tension is the entire
+    detection thesis:</strong> the knob that makes the cheat effective is the same knob that makes it
+    detectable, and you cannot turn both down at once. This is where behavioural detection gets its grip —
+    long before anyone inspects the device.
+  </p>
+
+  <div class="step">STEP 2 — across the wire: the serial protocol</div>
+  <p>
+    The PC and the Arduino agree on a tiny protocol. The simplest is two signed bytes — one for X, one for
+    Y — but the build originally tried to send a human-readable <code>"dx:dy"</code> string, which is where
+    the boundary first bit back:
+  </p>
+  <pre>ser = serial.Serial('COM5', 115200, timeout=0.01)
+...
+<i class="cm"># activation gate: only steer while the player holds a key (Shift = 0x10)</i>
+if win32api.GetKeyState(0x10):
+    payload = struct.pack('bb', clamp8(int(round(dx))), clamp8(int(round(dy))))
+    ser.write(payload)</pre>
+  <p class="codecap">Python side — gated, integer-clamped, byte-packed serial write</p>
+  <div class="pitfall">
+    <p><span class="lbl">Where the boundary bites</span><br>
+      Three real errors stood between idea and working link, and all three are the same lesson — a serial
+      wire carries <em>bytes</em>, not Python objects. <code>numpy.float64</code> values can't be glued to a
+      <code>":"</code> string (<code>UFuncNoLoopError</code>); a <code>str</code> won't go down the wire
+      un-encoded (<em>"unicode strings are not supported, please encode to bytes"</em>); and
+      <code>Serial.write()</code> takes <em>one</em> bytes argument, not two. The fix is to round to
+      integers, clamp, and pack to bytes <em>before</em> writing. Mundane — but it forces you to confront
+      that everything past this point is a hardware protocol with hard limits, not a function call.</p>
+  </div>
+  <p>
+    Note the <code>GetKeyState</code> gate: the cheat only steers while a key is held. That keeps it subtle,
+    but it also means the device produces a very particular trace — bursts of correction perfectly
+    correlated with a held button, separated by stretches of untouched human motion. That correlation is
+    itself a pattern a server can learn.
+  </p>
+
+  <div class="step">STEP 3 — the firmware: bytes become HID movement</div>
+  <p>
+    On the Arduino, the loop services the host shield (so the real mouse keeps working) and, whenever
+    correction bytes arrive, turns them into HID movement. The catch is the one in the hardware table:
+    <code>Mouse.move()</code> takes a <strong>signed byte, range −128…127</strong>. A flick across the
+    screen is far larger than 127 pixels, so a single delta has to be walked out in steps:
+  </p>
+  <pre>#include &lt;hidboot.h&gt;
+#include &lt;usbhub.h&gt;
+#include &lt;Mouse.h&gt;
+
+USB Usb;
+HIDBoot&lt;USB_HID_PROTOCOL_MOUSE&gt; HidMouse(&amp;Usb);   <i class="cm">// real mouse → host shield</i>
+
+void moveBy(int dx, int dy) {
+  <i class="cm">// split into <= 127px steps because HID deltas are signed bytes</i>
+  while (dx != 0 || dy != 0) {
+    int sx = constrain(dx, -<b class="hl">127</b>, <b class="hl">127</b>);
+    int sy = constrain(dy, -<b class="hl">127</b>, <b class="hl">127</b>);
+    Mouse.move(sx, sy);
+    dx -= sx; dy -= sy;
+  }
+}
+
+void loop() {
+  Usb.Task();                          <i class="cm">// pass the real mouse through</i>
+  if (Serial.available() &gt;= 2) {       <i class="cm">// injected correction from Python</i>
+    int8_t dx = Serial.read();
+    int8_t dy = Serial.read();
+    moveBy(dx, dy);
+  }
+}</pre>
+  <p class="codecap">Arduino sketch — pass-through + injection in one loop, with byte-limit stepping</p>
+  <p>
+    That <code>while</code> loop is forced by the hardware, and it leaves a fingerprint. A genuine
+    high-end mouse reports physically continuous motion at its own polling rate; this firmware emits aim
+    corrections as a <strong>burst of equal-or-127-pixel quantised steps</strong>, clocked to the serial
+    arrival rate rather than to a hand. The quantisation and the timing regularity are exactly the kind of
+    micro-signature behavioural models are built to notice — the movement is "too clean" in a way that has
+    a concrete, mechanical cause.
+  </p>
+
+  <div class="step">STEP 4 — reading the real mouse, and an accidental lesson in fingerprinting</div>
+  <p>
+    The pass-through half has to parse the HID reports coming off the player's mouse. The textbook layout is
+    four signed bytes — buttons, X, Y, wheel — and a naive parser assumes exactly that:
+  </p>
+  <pre>void Parse(USBHID *hid, bool rpt_id, uint8_t len, uint8_t *buf) {
+  <i class="cm">// assumed report: buf[0]=buttons  buf[1]=X  buf[2]=Y  buf[3]=wheel</i>
+  int8_t x = (int8_t)buf[1];
+  int8_t y = (int8_t)buf[2];
+  Mouse.move(x, y, (int8_t)buf[3]);
+}</pre>
+  <p class="codecap">naive 4-byte HID report parser — correct for a generic mouse, wrong for a fancy one</p>
+  <p>
+    This worked perfectly with one mouse and <strong>failed on a Logitech G&nbsp;Pro&nbsp;X Superlight</strong>:
+    vertical movement came through, horizontal didn't. The cause is the whole point of the project in
+    miniature. A high-end mouse doesn't use the generic boot-protocol layout — its <strong>HID report
+    descriptor</strong> declares a custom format (wider 16-bit axis fields, different byte offsets, vendor
+    usages), so reading "X" from <code>buf[1]</code> grabbed the wrong half of a two-byte field. Making the
+    pass-through robust meant actually reading the device's report descriptor and locating the axis fields
+    instead of assuming them.
+  </p>
+  <div class="pitfall">
+    <p><span class="lbl">The defender's gift</span><br>
+      That bug is descriptor fingerprinting handed to you from the other side. If a Superlight and a generic
+      mouse are <em>distinguishable by their report descriptors alone</em>, then so is an emulator. A stock
+      Leonardo's HID descriptor, its default <strong>VID 0x2341</strong> (Arduino LLC), its reporting
+      interval, and — the giveaway — the fact that it <strong>also enumerates a CDC serial interface</strong>
+      (a real mouse is HID-only; it has no COM port) form a composite signature an anti-cheat can read at
+      enumeration time. The very wire used to command the device is what exposes it.</p>
+  </div>
+
+  <!-- ============================ FINISH ============================ -->
+  <h2>Why device-layer detection fails first</h2>
+  <p>The defender's instinct — "find the cheat process / the injected code" — finds nothing, by construction:</p>
+  <ul>
+    <li><strong>It is a genuine USB device.</strong> The firmware enumerates a real HID interface, so "is this a legitimate input device?" answers <em>yes</em> at the protocol level.</li>
+    <li><strong>No memory contact.</strong> Nothing reads or writes the game's memory, so kernel anti-cheat's strongest signals — handles, injected modules, page protections — have nothing to bind to.</li>
+    <li><strong>Real input path.</strong> Movement arrives through the normal HID stack, indistinguishable from a mouse <em>at the point of entry</em>.</li>
+  </ul>
+  <p>
+    So detection can't ask "is a cheat present?" It has to ask the two harder questions the rest of this
+    project kept circling back to: <strong>"is this device what it claims to be?"</strong> and
+    <strong>"is this input being produced by a human?"</strong>
+  </p>
+
+  <h2>Where detection actually lives</h2>
+  <table>
+    <tr><th>Layer</th><th>Signal</th><th>Where it came from in this build</th></tr>
+    <tr><td>Behavioural</td><td>Reaction time under human latency, snap/overshoot signatures, quantised step cadence, correction bursts gated to a held key</td><td>STEP 1 (<code>aaMovementAmp</code>) + STEP 3 (127-px stepping) + STEP 2 (the activation gate)</td></tr>
+    <tr><td>Descriptor / firmware</td><td>HID report descriptor, VID/PID (default 0x2341), reporting interval, an HID device that <em>also</em> exposes CDC serial</td><td>STEP 4 (the Superlight descriptor bug, and the serial back-channel)</td></tr>
+    <tr><td>Timing</td><td>Inter-report intervals clocked to a serial link rather than to a hand or a fixed polling rate</td><td>STEP 2 → STEP 3 (serial-arrival-driven emission)</td></tr>
+    <tr><td>Server-side</td><td>Shot timing, crosshair position at the instant of fire, kill-consistency, reaction-latency distributions across many rounds</td><td>aggregate of the behaviour above, observed off the trusted client</td></tr>
+  </table>
+  <p>
+    The hierarchy is the lesson. Device and firmware signals are real and useful, but they are an arms race
+    of fingerprints — an attacker can reflash the VID/PID, clone a retail descriptor, and drop the serial
+    interface in favour of a wireless link. <strong>Behaviour is the signal of last resort precisely because
+    it is bound to the cheat's usefulness, not to its implementation.</strong> A descriptor can be forged for
+    free; human-looking aim can only be forged by making the aim worse.
+  </p>
+
+  <h2>The Vanguard arms race</h2>
+  <p>
+    This isn't hypothetical — it's an active front. Public reporting on Riot's Vanguard describes exactly
+    these setups: a microcontroller masquerading as a mouse or keyboard, running the cheat off-host, and
+    Riot targeting Arduino-class devices for years, with detection reported since roughly 2021–2022 and
+    understood to work in part through <strong>firmware-level identification</strong> — while cheat
+    developers keep finding circumvention paths. It is textbook detection engineering: defenders ship
+    detection for a hardware-evasion class's observable fingerprints, attackers file off the fingerprints,
+    and the durable signal keeps migrating toward behaviour, which is far harder to fake convincingly than a
+    device ID. Everything in the table above is one turn of that wheel, reproduced on a bench so I could see
+    the seams myself rather than take them on faith.
+  </p>
+
+  <h2>What I took from it</h2>
+  <p>
+    The transferable skill wasn't "make a mouse move" — it was bridging a real-time vision pipeline, a serial
+    protocol, and a physical HID peripheral into one closed loop, and being forced, by the hardware, to
+    understand every layer it crosses. The reasoning generalises well past games:
+  </p>
+  <ul>
+    <li><strong>HID &amp; peripheral security (BadUSB).</strong> The same trust problem: a device's claimed identity can't be taken at face value, because the identity is just firmware asserting a descriptor. Defending malicious-USB is the same descriptor-and-behaviour problem wearing a different hat.</li>
+    <li><strong>Bot / automation / anti-fraud.</strong> "Human or synthetic?" is one question whether the adversary is an aimbot, a credential-stuffing script, or a click-farm. The defences rhyme: behavioural baselining, timing analysis, server-side aggregation.</li>
+    <li><strong>The trusted-client law.</strong> Anything the client reports can be spoofed, so high-assurance detection ends up behavioural and server-side. That principle runs from anti-cheat to EDR to fraud scoring — and seeing it forced by hardware, where you genuinely cannot trust the device, made it concrete in a way reading about it never did.</li>
+  </ul>
+
+  <div class="note">
+    <p><strong>Context &amp; ethics.</strong> A personal project for educational and research purposes only,
+    studying the <em>detection</em> problem — how anti-cheat identifies hardware-emulated input. Built and
+    bench-tested on my own equipment, against bots and offline targets only; never used against live players
+    and never distributed. The code excerpts are trimmed for explanation, not assembled as a usable tool, and
+    no firmware, model, or end-to-end program is published here. The aim throughout is the defender's: to
+    understand why "it looks like a real mouse" defeats device-layer checks, and to map exactly where that
+    forces detection up the stack into behaviour and server-side analysis.</p>
+  </div>
+
+</div>
+
+<div class="wrap">
+  <footer>
+    <span>submerse</span> &nbsp;·&nbsp;
+    <a href="../index.html">home</a> &nbsp;·&nbsp;
+    <a href="../index.html#projects">projects</a>
+  </footer>
+</div>
+
+</body>
+</html>

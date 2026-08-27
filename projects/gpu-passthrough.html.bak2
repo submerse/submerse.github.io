@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VFIO Gaming VM — GPU Passthrough &amp; Anti-Cheat Stealth // submerse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+  .doc h3{font-family:var(--mono);font-size:16px;font-weight:600;color:var(--text);
+    margin:36px 0 12px;letter-spacing:-.2px}
+  .doc h3::before{content:"› ";color:var(--accent-dim)}
+  .doc table{width:100%;border-collapse:collapse;margin:0 0 20px;
+    font-family:var(--mono);font-size:13.5px}
+  .doc th{text-align:left;padding:9px 14px;color:var(--accent-dim);
+    border-bottom:2px solid var(--line);font-weight:500}
+  .doc td{padding:8px 14px;color:var(--text-dim);border-bottom:1px solid var(--line);
+    vertical-align:top}
+  .doc tr:last-child td{border-bottom:none}
+  .doc tr:hover td{background:var(--bg-card-hover)}
+  .result-pass{color:#a3be8c}
+  .result-stuck{color:#bf616a}
+  .severity-med{color:#ebcb8b;font-size:12px}
+  .severity-low{color:#88c0d0;font-size:12px}
+  .label{font-family:var(--mono);font-size:11px;color:var(--magenta);letter-spacing:1px;
+    text-transform:uppercase;margin:28px 0 6px;display:block}
+</style>
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 02 · systems &amp; virtualization &amp; stealth</div>
+      <h1>VFIO Gaming VM — GPU Passthrough &amp; Anti-Cheat Stealth</h1>
+      <div class="meta">
+        <span>KVM/QEMU</span><span>VFIO</span><span>IOMMU</span><span>Linux</span>
+        <span>SMBIOS</span><span>ACPI</span><span>anti-cheat</span><span>kernel</span><span>stealth</span>
+      </div>
+    </header>
+
+    <h2>Overview</h2>
+    <p>A Linux host running KVM/QEMU passes a bare-metal RTX 4090 directly into a Windows 10 VM — then
+      that VM is hardened until modern anti-cheat systems can no longer distinguish it from real hardware.
+      Two layers: first, a dual-GPU rig where the iGPU keeps the Arch host alive while the 4090 is
+      dynamically handed to the VM on demand; second, systematically closing every hypervisor fingerprint
+      until the guest passes kernel-mode anti-cheat scrutiny.</p>
+    <p>Current status: <strong>Denuvo Anti-Tamper</strong> and <strong>Easy Anti-Cheat (EAC)</strong>
+      are fully defeated. <strong>Riot Vanguard</strong> remains the active research target.</p>
+
+    <!-- ============================================================ -->
+    <h2>Part 1 — The Foundation: Dual-GPU Dynamic Passthrough</h2>
+
+    <p>The machine runs two GPUs and two monitors. The <strong>iGPU</strong> (integrated graphics on the
+      Ryzen 9 9950X3D) drives the Arch Linux host display at all times. The <strong>RTX 4090</strong> is
+      the passthrough card, connected to a dedicated second screen for the Windows guest. When the VM is
+      running, both displays are live simultaneously — Arch on one, Windows at full bare-metal GPU
+      performance on the other.</p>
+    <p>The 4090 is <strong>not permanently locked to VFIO at boot</strong>. When the VM shuts down, the
+      card is freed back to the host — available for LLM inference (llama-server), CUDA workloads, or
+      simply driving the host's own display directly. Switching the monitor input to the 4090 output at
+      that point gives a noticeably smoother desktop experience compared to the iGPU: higher refresh,
+      better colour output, and the full GPU available for any host-side rendering. Three distinct
+      modes, all without a reboot:</p>
+    <ul>
+      <li><strong>VM active:</strong> iGPU → host display &nbsp;|&nbsp; RTX 4090 → Windows guest at
+        bare-metal performance</li>
+      <li><strong>VM off, GPU on host:</strong> 4090 freed for llama-server / CUDA inference on Arch,
+        iGPU still driving the host screen</li>
+      <li><strong>VM off, full display:</strong> monitor switched to 4090 output — silky smooth
+        host desktop with the full card available for rendering</li>
+    </ul>
+
+    <h3>Step 1 — Enable IOMMU</h3>
+    <p>IOMMU must be enabled in the kernel before any VFIO passthrough is possible. Add the flags to the
+      kernel command line in <code>/etc/default/grub</code> and regenerate:</p>
+    <span class="label">/etc/default/grub</span>
+    <pre>GRUB_CMDLINE_LINUX_DEFAULT="... amd_iommu=on iommu=pt"</pre>
+    <pre>sudo grub-mkconfig -o /boot/grub/grub.cfg</pre>
+    <p><code>iommu=pt</code> (passthrough mode) is important — it avoids performance penalties for
+      devices that don't need IOMMU translation, like the iGPU staying on the host.</p>
+    <p>After reboot, verify IOMMU groups to confirm the 4090 is isolated in its own group — a
+      prerequisite for clean passthrough:</p>
+    <pre>for g in /sys/kernel/iommu_groups/*; do
+  echo "Group $(basename $g):"
+  for d in $g/devices/*; do
+    echo "  $(basename $d) — $(lspci -s $(basename $d) 2>/dev/null | cut -d' ' -f2-)"
+  done
+done</pre>
+    <p>The GPU and its HDMI-audio function must be alone in their group (or only accompanied by each
+      other). If other devices share the group, ACS patching is needed to split them.</p>
+
+    <h3>Step 2 — CPU Pinning</h3>
+    <p>Without CPU pinning, the VM's vCPUs float across all host cores, causing RDTSC jitter and
+      unpredictable latency — both a performance problem and a timing-based detection vector. The VM is
+      configured with 16 vCPUs pinned to a fixed slice of the host's physical cores, leaving the
+      remaining cores free for the iGPU-driven host desktop:</p>
+    <span class="label">virsh XML — cputune block</span>
+    <pre>&lt;vcpu placement='static'&gt;16&lt;/vcpu&gt;
+&lt;cputune&gt;
+  &lt;vcpupin vcpu='0'  cpuset='8'/&gt;   &lt;vcpupin vcpu='1'  cpuset='24'/&gt;
+  &lt;vcpupin vcpu='2'  cpuset='9'/&gt;   &lt;vcpupin vcpu='3'  cpuset='25'/&gt;
+  &lt;vcpupin vcpu='4'  cpuset='10'/&gt;  &lt;vcpupin vcpu='5'  cpuset='26'/&gt;
+  &lt;vcpupin vcpu='6'  cpuset='11'/&gt;  &lt;vcpupin vcpu='7'  cpuset='27'/&gt;
+  &lt;vcpupin vcpu='8'  cpuset='12'/&gt;  &lt;vcpupin vcpu='9'  cpuset='28'/&gt;
+  &lt;vcpupin vcpu='10' cpuset='13'/&gt;  &lt;vcpupin vcpu='11' cpuset='29'/&gt;
+  &lt;vcpupin vcpu='12' cpuset='14'/&gt;  &lt;vcpupin vcpu='13' cpuset='30'/&gt;
+  &lt;vcpupin vcpu='14' cpuset='15'/&gt;  &lt;vcpupin vcpu='15' cpuset='31'/&gt;
+  &lt;emulatorpin cpuset='4-7'/&gt;
+&lt;/cputune&gt;
+&lt;cpu mode='host-passthrough' check='none' migratable='off'&gt;
+  &lt;topology sockets='1' dies='1' clusters='1' cores='8' threads='2'/&gt;
+&lt;/cpu&gt;</pre>
+    <p>vCPUs 0–15 map to host cores 8–15 and their SMT siblings (24–31). The QEMU emulator threads
+      get cores 4–7, keeping them off the VM's dedicated slice. <code>host-passthrough</code> exposes
+      the real CPU feature flags to the guest — necessary for gaming performance and for the CPU
+      identity spoofing to be credible.</p>
+
+    <h3>Step 3 — The Orchestration Script</h3>
+    <p>A single script manages the entire GPU lifecycle: stops host services that hold the card, hands
+      it to VFIO, boots the VM, waits, then reclaims it on shutdown. The VM starts as a regular user
+      to preserve PulseAudio access; only the bind step runs as root via a scoped
+      <code>sudoers</code> rule:</p>
+    <span class="label">/home/sub/start-vm4.sh</span>
+    <pre>#!/bin/bash
+VM_NAME="win10"
+export LIBVIRT_DEFAULT_URI=qemu:///system
+export XDG_RUNTIME_DIR=/run/user/1000
+export PULSE_SERVER=/run/user/1000/pulse/native
+
+if ! virsh dominfo $VM_NAME &amp;&gt;/dev/null; then
+  echo "ERROR: VM '$VM_NAME' not found"; exit 1
+fi
+
+if ! lsmod | grep -q vfio_pci; then sudo modprobe vfio-pci; fi
+
+# stop llama-server so it releases the GPU
+killall llama-server 2&gt;/dev/null
+sleep 2
+
+echo "Binding 4090 to vfio..."
+sudo /usr/local/bin/vfio-bind.sh bind
+
+echo "Starting VM..."
+virsh start $VM_NAME || { sudo /usr/local/bin/vfio-bind.sh unbind; exit 1; }
+
+# patch FADT pm_profile in QEMU memory ~5s after start
+# (QEMU builds ACPI tables at init; Windows caches them ~15s in — this hits the window)
+(sleep 5 &amp;&amp; sudo /usr/local/bin/patch-fadt-pm-profile win10 2&gt;&amp;1 | sed 's/^/[fadt] /') &amp;
+
+echo "VM running — waiting for shutdown..."
+while true; do
+  STATE=$(virsh domstate $VM_NAME 2&gt;/dev/null)
+  [ "$STATE" = "shut off" ] || [ "$STATE" = "crashed" ] &amp;&amp; break
+  sleep 5
+done
+
+sudo /usr/local/bin/vfio-bind.sh unbind
+echo "Done — 4090 returned to host"</pre>
+    <span class="label">/etc/sudoers.d/vfio</span>
+    <pre>sub ALL=(root) NOPASSWD: /usr/local/bin/vfio-bind.sh
+sub ALL=(root) NOPASSWD: /usr/local/bin/patch-fadt-pm-profile</pre>
+
+    <h3>Step 4 — The Low-Level Bind Helper</h3>
+    <p>The root helper does the actual PCI driver swap via <code>sysfs</code>. It handles both PCI
+      functions of the card — the GPU at <code>.0</code> and its HDMI-audio device at <code>.1</code>,
+      which share an IOMMU group and must always move together. On the way back to the host, it
+      performs a PCI device reset before handing to the NVIDIA driver to avoid an
+      <code>ENODEV</code> after VFIO:</p>
+    <span class="label">/usr/local/bin/vfio-bind.sh</span>
+    <pre>#!/bin/bash
+GPU_IDS=("0000:01:00.0" "0000:01:00.1")
+NVIDIA_DRIVER="nvidia"
+
+bind_vfio() {
+  for id in "${GPU_IDS[@]}"; do
+    [ -e /sys/bus/pci/devices/$id/driver ] &amp;&amp; \
+      echo $id &gt; /sys/bus/pci/devices/$id/driver/unbind
+    echo "vfio-pci" &gt; /sys/bus/pci/devices/$id/driver_override
+    echo $id &gt; /sys/bus/pci/drivers/vfio-pci/bind
+  done
+}
+
+unbind_vfio() {
+  for id in "${GPU_IDS[@]}"; do
+    echo "" &gt; /sys/bus/pci/devices/$id/driver_override
+    [ -e /sys/bus/pci/devices/$id/driver ] &amp;&amp; \
+      echo $id &gt; /sys/bus/pci/devices/$id/driver/unbind
+    # reset device before handing back — avoids ENODEV after VFIO session
+    [ -e /sys/bus/pci/devices/$id/reset ] &amp;&amp; \
+      echo 1 &gt; /sys/bus/pci/devices/$id/reset
+    echo $id &gt; /sys/bus/pci/drivers/$NVIDIA_DRIVER/bind
+  done
+}
+
+case "$1" in bind) bind_vfio ;; unbind) unbind_vfio ;; esac</pre>
+    <p>Using <code>driver_override</code> plus explicit unbind/bind — rather than boot-time
+      blacklisting — is what makes on-demand handoff possible. VFIO never claims the GPU until this
+      script runs, and the <code>nvidia</code> driver gets it straight back afterwards.</p>
+
+    <!-- ============================================================ -->
+    <h2>Part 2 — The Rabbit Hole: Anti-Cheat Detection</h2>
+
+    <p>With stable passthrough in place, the next problem was immediate: <strong>anti-cheat software
+      fingerprints hypervisors</strong>. A stock KVM/QEMU VM leaks its identity through CPUID flags,
+      ACPI table strings, SMBIOS vendor fields, PCIe device count, disk serials, and NIC MAC OUIs
+      simultaneously. Any single signal is enough for a kernel-mode driver to flag the session.
+      What followed was a systematic process of closing every surface, layer by layer.</p>
+
+    <h3>CPUID &amp; Hypervisor Bit Hiding</h3>
+    <p>The most obvious leak is CPUID. By default, KVM plants its vendor string
+      <code>KVMKVMKVM</code> at leaf <code>0x40000000</code> and sets the hypervisor-present bit in
+      <code>CPUID.1:ECX[31]</code>. Any anti-cheat (or even <code>cpuid.exe</code>) can read these.
+      Three flags strip them entirely:</p>
+    <span class="label">virsh XML — cpu &amp; features</span>
+    <pre>&lt;features&gt;
+  &lt;acpi/&gt;
+  &lt;apic/&gt;
+  &lt;kvm&gt;
+    &lt;hidden state='on'/&gt;   &lt;!-- removes KVMKVMKVM from CPUID 0x40000000 --&gt;
+  &lt;/kvm&gt;
+  &lt;vmport state='off'/&gt;    &lt;!-- kills VMware backdoor I/O port --&gt;
+  &lt;smm state='on'/&gt;
+&lt;/features&gt;
+
+&lt;cpu mode='host-passthrough' check='none' migratable='off'&gt;
+  &lt;topology sockets='1' dies='1' clusters='1' cores='8' threads='2'/&gt;
+  &lt;feature policy='require' name='topoext'/&gt;
+  &lt;feature policy='disable' name='hypervisor'/&gt;  &lt;!-- clears ECX[31] --&gt;
+&lt;/cpu&gt;</pre>
+    <p>After these changes, <code>CPUID.1:ECX[31]</code> returns 0 and the vendor string at
+      <code>0x40000000</code> is gone. Windows itself stops reporting that it's running in a
+      hypervisor-managed environment.</p>
+
+    <h3>Clock &amp; TSC Hardening</h3>
+    <p>Timing is a classic VM detection vector — a drifting TSC or mismatched clock source is a dead
+      giveaway. The clock block was hardened to native passthrough:</p>
+    <span class="label">virsh XML — clock</span>
+    <pre>&lt;clock offset='localtime'&gt;
+  &lt;timer name='rtc'       tickpolicy='catchup'/&gt;
+  &lt;timer name='pit'       tickpolicy='delay'/&gt;
+  &lt;timer name='hpet'      present='no'/&gt;       &lt;!-- no HPET on real consumer boards --&gt;
+  &lt;timer name='hypervclock' present='no'/&gt;     &lt;!-- removes HyperV clock entirely --&gt;
+  &lt;timer name='tsc'       present='yes' mode='native'/&gt;  &lt;!-- host TSC passed through --&gt;
+&lt;/clock&gt;</pre>
+    <p>With <code>mode='native'</code>, the guest reads the host's actual TSC via
+      <code>RDTSC</code> — no emulated counter, no drift. Combined with the CPU pinning from Part 1,
+      timing reads from the guest are indistinguishable from bare metal.</p>
+
+    <h3>SMBIOS — Full Board Identity Spoof</h3>
+    <p>QEMU's default SMBIOS entries expose <code>QEMU</code> as the manufacturer across every type.
+      Anti-cheat drivers query types 0 (BIOS), 1 (system), 2 (baseboard), 3 (chassis), and 11 (OEM
+      strings) — all of them. The board was spoofed to an ASUS ROG CROSSHAIR X670E HERO to match the
+      AM5 platform of the actual host CPU (9950X3D), keeping CPUID and SMBIOS consistent:</p>
+    <span class="label">virsh XML — sysinfo block</span>
+    <pre>&lt;sysinfo type='smbios'&gt;
+  &lt;bios&gt;
+    &lt;entry name='vendor'&gt;American Megatrends Inc.&lt;/entry&gt;
+    &lt;entry name='version'&gt;3601&lt;/entry&gt;
+    &lt;entry name='date'&gt;04/03/2025&lt;/entry&gt;
+  &lt;/bios&gt;
+  &lt;system&gt;
+    &lt;entry name='manufacturer'&gt;ASUSTeK COMPUTER INC.&lt;/entry&gt;
+    &lt;entry name='product'&gt;ROG CROSSHAIR X670E HERO&lt;/entry&gt;
+    &lt;entry name='version'&gt;Rev 1.xx&lt;/entry&gt;
+    &lt;entry name='serial'&gt;MZSKD2DO2Y94&lt;/entry&gt;
+    &lt;entry name='sku'&gt;ROG CROSSHAIR X670E HERO&lt;/entry&gt;
+    &lt;entry name='family'&gt;ASUS MB&lt;/entry&gt;
+  &lt;/system&gt;
+  &lt;baseBoard&gt;
+    &lt;entry name='manufacturer'&gt;ASUSTeK COMPUTER INC.&lt;/entry&gt;
+    &lt;entry name='product'&gt;ROG CROSSHAIR X670E HERO&lt;/entry&gt;
+    &lt;entry name='version'&gt;Rev 1.xx&lt;/entry&gt;
+    &lt;entry name='serial'&gt;MZSKD2DO2Y94&lt;/entry&gt;
+  &lt;/baseBoard&gt;
+  &lt;chassis&gt;
+    &lt;entry name='manufacturer'&gt;ASUSTeK COMPUTER INC.&lt;/entry&gt;
+    &lt;entry name='version'&gt;1.0&lt;/entry&gt;
+    &lt;entry name='serial'&gt;MZSKD2DO2Y94&lt;/entry&gt;
+    &lt;entry name='asset'&gt;ATN39627732&lt;/entry&gt;
+    &lt;entry name='sku'&gt;Default string&lt;/entry&gt;
+  &lt;/chassis&gt;
+  &lt;oemStrings&gt;
+    &lt;entry&gt;www.asus.com&lt;/entry&gt;
+  &lt;/oemStrings&gt;
+&lt;/sysinfo&gt;</pre>
+    <p>Verification inside the VM with <code>wmic</code> — before and after:</p>
+    <span class="label">cmd — verify SMBIOS</span>
+    <pre>&gt; wmic bios get manufacturer,smbiosbiosversion
+Manufacturer                  SMBIOSBIOSVersion
+American Megatrends Inc.      3601
+
+&gt; wmic baseboard get manufacturer,product
+Manufacturer                  Product
+ASUSTeK COMPUTER INC.         ROG CROSSHAIR X670E HERO</pre>
+
+    <h3>RAM Modules — SMBIOS Type 17</h3>
+    <p>SMBIOS Type 17 describes individual memory modules. By default QEMU reports nothing useful here,
+      which is itself a fingerprint (no real system has blank RAM entries). Two Kingston DDR4 sticks
+      were injected via <code>qemu:commandline</code> to match a typical gaming build:</p>
+    <span class="label">virsh XML — qemu:commandline (RAM type 17)</span>
+    <pre>&lt;qemu:arg value='-smbios'/&gt;
+&lt;qemu:arg value='type=17,manufacturer=Kingston,part=KF432C16BB/8,speed=3200,
+  loc_pfx=DIMM_A1,bank=BANK 0,serial=0D2B1A3C'/&gt;
+&lt;qemu:arg value='-smbios'/&gt;
+&lt;qemu:arg value='type=17,manufacturer=Kingston,part=KF432C16BB/8,speed=3200,
+  loc_pfx=DIMM_B1,bank=BANK 1,serial=1E3C2B4D'/&gt;</pre>
+
+    <h3>ACPI OEM Table Spoofing</h3>
+    <p>QEMU hardcodes <code>BOCHS</code> as the OEM ID and <code>BXPC</code> as the OEM Table ID
+      across all its generated ACPI tables (FACP, MADT, MCFG, DSDT…). Real ASUS boards with AMI BIOS
+      use <code>ALASKA</code> and <code>A M I&nbsp;&nbsp;&nbsp;</code> (with trailing spaces to pad to
+      8 bytes). This is visible to any tool that reads raw ACPI — including
+      <code>NtQuerySystemInformation</code>, which anti-cheat drivers call.</p>
+    <p>Rather than maintaining a custom compiled DSDT (which broke after a Windows Update changed ACPI
+      driver behaviour), a QEMU wrapper was written. It intercepts the <code>-machine</code> launch
+      argument and injects the OEM strings before QEMU initialises:</p>
+    <span class="label">/usr/local/bin/qemu-win10-stealth</span>
+    <pre>#!/bin/bash
+REAL_QEMU=/usr/bin/qemu-system-x86_64
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "-machine" &amp;&amp; "$2" == pc-q35-* ]]; then
+    ARGS+=("-machine" "${2},x-oem-id=ALASKA,x-oem-table-id=A M I   ")
+    shift 2
+  else
+    ARGS+=("$1")
+    shift
+  fi
+done
+exec "$REAL_QEMU" "${ARGS[@]}"</pre>
+    <p>This wrapper is set as the VM's emulator in the libvirt XML:</p>
+    <pre>&lt;devices&gt;
+  &lt;emulator&gt;/usr/local/bin/qemu-win10-stealth&lt;/emulator&gt;
+  ...
+&lt;/devices&gt;</pre>
+    <p>The result: every QEMU-generated ACPI table reports <code>ALASKA</code> /
+      <code>A M I</code> in its OEM fields — indistinguishable from a real AMI BIOS. Verified via
+      AIDA64 → Motherboard → ACPI:</p>
+    <span class="label">before / after — ACPI OEM fields</span>
+    <pre># before
+OEM ID:       BOCHS
+OEM Table ID: BXPC
+
+# after
+OEM ID:       ALASKA
+OEM Table ID: A M I</pre>
+
+    <h3>Disk Identity</h3>
+    <p>QEMU reports SATA disks as <code>QEMU HARDDISK</code> with a blank or obviously fake serial.
+      Both were overridden to match a real Western Digital drive — the model via
+      <code>qemu:commandline</code> and the serial directly in the disk block:</p>
+    <span class="label">virsh XML — disk serial + model override</span>
+    <pre>&lt;!-- Serial in the disk block --&gt;
+&lt;disk type='file' device='disk'&gt;
+  &lt;driver name='qemu' type='qcow2' discard='unmap'/&gt;
+  &lt;source file='/home/sub/ssd/win10.qcow2'/&gt;
+  &lt;target dev='sda' bus='sata'/&gt;
+  &lt;serial&gt;WD-WX4S033U88CP&lt;/serial&gt;
+&lt;/disk&gt;
+
+&lt;!-- Model string override via qemu:commandline --&gt;
+&lt;qemu:arg value='-set'/&gt;
+&lt;qemu:arg value='device.sata0-0-0.model=WDC WD40EZRZ-00WN9B0'/&gt;</pre>
+    <span class="label">cmd — verify disk identity</span>
+    <pre>&gt; wmic diskdrive get model,serialnumber
+Model                    SerialNumber
+WDC WD40EZRZ-00WN9B0     WD-WX4S033U88CP</pre>
+
+    <h3>NIC — Intel OUI MAC Address</h3>
+    <p>QEMU's default NIC uses the OUI prefix <code>52:54:00</code> — a well-known QEMU/KVM
+      identifier. The NIC was replaced with <code>e1000e</code> (emulates a genuine Intel i219 LAN
+      controller) and given a MAC address with a real Intel OUI (<code>00:1B:21</code>):</p>
+    <span class="label">virsh XML — network interface</span>
+    <pre>&lt;interface type='network'&gt;
+  &lt;mac address='00:1b:21:ae:97:e6'/&gt;   &lt;!-- Intel OUI --&gt;
+  &lt;source network='default'/&gt;
+  &lt;model type='e1000e'/&gt;
+  &lt;address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/&gt;
+&lt;/interface&gt;</pre>
+
+    <h3>PCIe Topology Reduction</h3>
+    <p>Stock QEMU Q35 exposes 14 PCIe root ports. No real consumer X670E board ships with that many
+      visible to the OS — it's an immediate fingerprint for anything that enumerates the PCI bus.
+      The topology was pruned to 6 ports, matching a realistic high-end desktop board, with the GPU
+      passed through as a <code>hostdev</code>:</p>
+    <span class="label">virsh XML — PCIe topology &amp; GPU hostdev</span>
+    <pre>&lt;!-- 6 root ports (ioh3420), trimmed from QEMU's default 14 --&gt;
+&lt;controller type='pci' index='1' model='pcie-root-port'&gt;...bus='0x01'...&lt;/controller&gt;
+&lt;controller type='pci' index='2' model='pcie-root-port'&gt;...bus='0x02'...&lt;/controller&gt;
+&lt;controller type='pci' index='3' model='pcie-root-port'&gt;...bus='0x03'...&lt;/controller&gt;
+&lt;controller type='pci' index='4' model='pcie-root-port'&gt;...bus='0x04'...&lt;/controller&gt;
+&lt;controller type='pci' index='5' model='pcie-root-port'&gt;...bus='0x05'...&lt;/controller&gt;
+&lt;controller type='pci' index='6' model='pcie-root-port'&gt;...bus='0x06'...&lt;/controller&gt;
+
+&lt;!-- RTX 4090 GPU (.0) + HDMI audio (.1) passed through as bare hardware --&gt;
+&lt;hostdev mode='subsystem' type='pci' managed='yes'&gt;
+  &lt;driver name='vfio'/&gt;
+  &lt;source&gt;&lt;address domain='0x0000' bus='0x01' slot='0x00' function='0x0'/&gt;&lt;/source&gt;
+  &lt;address type='pci' domain='0x0000' bus='0x03' slot='0x00' function='0x0'/&gt;
+&lt;/hostdev&gt;
+&lt;hostdev mode='subsystem' type='pci' managed='yes'&gt;
+  &lt;driver name='vfio'/&gt;
+  &lt;source&gt;&lt;address domain='0x0000' bus='0x01' slot='0x00' function='0x1'/&gt;&lt;/source&gt;
+  &lt;address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/&gt;
+&lt;/hostdev&gt;</pre>
+    <table>
+      <thead><tr><th>Port</th><th>Device</th><th>Bus</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>e1000e NIC</td><td>0x01</td></tr>
+        <tr><td>2</td><td>nec-xhci USB controller</td><td>0x02</td></tr>
+        <tr><td>3</td><td>RTX 4090 (GPU)</td><td>0x03</td></tr>
+        <tr><td>4</td><td>RTX 4090 (HDMI audio)</td><td>0x04</td></tr>
+        <tr><td>5</td><td>NVMe SSD</td><td>0x05</td></tr>
+        <tr><td>6</td><td>Spare</td><td>—</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Secure Boot</h3>
+    <p>Enrolled genuine Microsoft production PKI keys into the OVMF NVRAM so Windows sees Secure Boot
+      as active. Vanguard and some other anti-cheat systems treat a missing or unsigned boot chain as
+      suspicious:</p>
+    <span class="label">virsh XML — EFI + Secure Boot</span>
+    <pre>&lt;os firmware='efi'&gt;
+  &lt;type arch='x86_64' machine='pc-q35-11.0'&gt;hvm&lt;/type&gt;
+  &lt;firmware&gt;
+    &lt;feature enabled='no'  name='enrolled-keys'/&gt;
+    &lt;feature enabled='yes' name='secure-boot'/&gt;
+  &lt;/firmware&gt;
+  &lt;loader readonly='yes' secure='yes' type='pflash' format='raw'
+    &gt;/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd&lt;/loader&gt;
+  &lt;nvram format='raw'
+    &gt;/var/lib/libvirt/qemu/nvram/win10_VARS.fd&lt;/nvram&gt;
+  &lt;boot dev='hd'/&gt;
+  &lt;smbios mode='sysinfo'/&gt;
+&lt;/os&gt;</pre>
+    <span class="label">host — enroll Microsoft keys</span>
+    <pre>virt-fw-vars --enroll-redhat \
+  -i /usr/share/edk2/x64/OVMF_VARS.4m.fd \
+  -o /var/lib/libvirt/qemu/nvram/win10_VARS.fd</pre>
+
+    <h3>Noise Removal</h3>
+    <p>Everything QEMU adds that has no equivalent on real consumer hardware was stripped. Each item
+      is a registry entry, driver, or device that anti-cheat tools can enumerate:</p>
+    <span class="label">virsh XML — stripped devices</span>
+    <pre>&lt;!-- memballoon off — VirtIO balloon driver is a classic VM tell --&gt;
+&lt;memballoon model='none'/&gt;
+
+&lt;!-- no emulated video — GPU is passed through; VGA emulation would expose QEMU --&gt;
+&lt;video&gt;&lt;model type='none'/&gt;&lt;/video&gt;
+
+&lt;!-- vmport off — kills VMware backdoor I/O port (0x5658) --&gt;
+&lt;vmport state='off'/&gt;
+
+&lt;!-- USB: nec-xhci (NEC/Renesas µPD720201 — real hardware) instead of qemu-xhci --&gt;
+&lt;controller type='usb' index='0' model='nec-xhci' ports='15'&gt;...&lt;/controller&gt;
+
+&lt;!-- iTCO watchdog — present on real Intel/AMD chipsets, absent from stock QEMU --&gt;
+&lt;watchdog model='itco' action='reset'/&gt;</pre>
+    <p>Items also removed that don't appear in the XML at all: ISA serial device, HyperV
+      enlightenments block (<code>relaxed</code>, <code>vapic</code>, <code>spinlocks</code>),
+      <code>hypervclock</code> timer, and the VirtIO-serial controller that shows as
+      <code>Red Hat VirtIO</code> in Device Manager.</p>
+
+    <h3>Guest-Side Cleanup (Windows)</h3>
+    <p>The host-side XML gets you most of the way, but the guest OS itself can hold leftover
+      references. A batch script run as Administrator inside Windows finalises the cleanup:</p>
+    <span class="label">Windows (Admin cmd) — disable HyperV &amp; VBS</span>
+    <pre>bcdedit /set hypervisorlaunchtype off
+bcdedit /set vsmlaunchtype off</pre>
+    <span class="label">Windows (Admin cmd) — remove QEMU services &amp; registry keys</span>
+    <pre>sc query QEMU-GA &amp;&amp; sc delete QEMU-GA
+sc config vmictimesync start= disabled
+sc config vmicheartbeat start= disabled
+
+reg delete "HKLM\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters" /f
+reg delete "HKLM\HARDWARE\ACPI\DSDT\QEMU" /f 2&gt;nul
+reg delete "HKLM\HARDWARE\ACPI\FADT\QEMU" /f 2&gt;nul</pre>
+    <span class="label">Windows (Admin cmd) — reveal and remove ghost VirtIO devices</span>
+    <pre>set DEVMGR_SHOW_NONPRESENT_DEVICES=1
+start devmgmt.msc
+:: View → Show hidden devices
+:: Uninstall (with "delete driver") anything named VirtIO*, QEMU*, Red Hat VirtIO*</pre>
+
+    <!-- ============================================================ -->
+    <h2>Part 3 — Results &amp; The Remaining Wall</h2>
+
+    <h3>Proof of Concept — VM Footage</h3>
+    <p>Screenshots and recordings taken from inside the Windows guest running on the passed-through
+      RTX 4090. Anti-cheat status visible in-game.</p>
+    <div class="shots">
+      <figure>
+        <!-- REPLACE: screenshot of msinfo32 showing ASUSTeK / ROG CROSSHAIR board -->
+        <img src="../images/vm-msinfo32.png" alt="msinfo32 showing spoofed ASUS board identity"/>
+        <figcaption>fig. 1 — msinfo32: guest reports ASUSTeK ROG CROSSHAIR X670E HERO</figcaption>
+      </figure>
+      <figure>
+        <!-- REPLACE: screenshot of a game running with EAC active (no ban/flag) -->
+        <img src="../images/vm-eac-ingame.png" alt="EAC-protected game running in VM"/>
+        <figcaption>fig. 2 — EAC-protected title running cleanly in the VM</figcaption>
+      </figure>
+      <figure>
+        <!-- REPLACE: screenshot of AIDA64 ACPI showing ALASKA/AMI OEM strings -->
+        <img src="../images/vm-acpi-oem.png" alt="AIDA64 ACPI showing ALASKA OEM ID"/>
+        <figcaption>fig. 3 — AIDA64: ACPI tables reporting ALASKA / A M I OEM strings</figcaption>
+      </figure>
+      <figure>
+        <!-- REPLACE: screenshot of wmic disk/NIC output showing WDC + Intel MAC -->
+        <img src="../images/vm-wmic-hw.png" alt="wmic output showing WDC disk and Intel NIC"/>
+        <figcaption>fig. 4 — wmic: WDC disk model, WD serial, Intel NIC — no QEMU strings</figcaption>
+      </figure>
+    </div>
+    <p>Video walkthrough — VM booting with the RTX 4090 bound via VFIO, game launch with anti-cheat
+      active:</p>
+    <!-- REPLACE: swap VIDEO_ID for your unlisted YouTube video ID -->
+    <div class="video">
+      <iframe src="https://www.youtube.com/embed/VIDEO_ID" title="VFIO VM anti-cheat passthrough demo" allowfullscreen></iframe>
+    </div>
+    <p class="vid-cap">fig. 5 — guest booting with the 4090 passed through; EAC title launching cleanly</p>
+
+    <p>After all of the above, the VM passes fingerprinting well enough to run protected titles. Two
+      major anti-cheat systems are cleared:</p>
+    <table>
+      <thead><tr><th>Anti-Cheat</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Denuvo Anti-Tamper</td>
+          <td class="result-pass">✓ Defeated</td>
+          <td>CPUID spoofing + SMBIOS chain + hypervisor bit removal sufficient</td>
+        </tr>
+        <tr>
+          <td>Easy Anti-Cheat (EAC)</td>
+          <td class="result-pass">✓ Defeated</td>
+          <td>Kernel driver probes CPUID, SMBIOS, and ACPI — all three hardened</td>
+        </tr>
+        <tr>
+          <td>Riot Vanguard</td>
+          <td class="result-stuck">✗ Active research</td>
+          <td><code>vgk.sys</code> loads at ring-0 during Windows boot, before userspace</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p><strong>Why Vanguard is different.</strong> Unlike EAC and Denuvo, <code>vgk.sys</code> is
+      registered as a boot-start kernel service — it loads at ring-0 before any userspace process
+      initialises, during the earliest phase of the Windows boot sequence. This gives it a privileged
+      vantage point to inspect hardware state before the system is settled, making runtime CPUID
+      spoofing techniques insufficient on their own.</p>
+    <p>Remaining surfaces that Vanguard is likely probing at that early boot stage:</p>
+    <table>
+      <thead><tr><th>Surface</th><th>Severity</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>TPM manufacturer string</td>
+          <td><span class="severity-med">MEDIUM</span></td>
+          <td>Software TPM (swtpm) reports <strong>IBM</strong> as manufacturer. Host TPM passthrough
+            fails: QEMU buffer size is 3968 bytes vs the host's 4096 — the negotiation fails and
+            QEMU falls back to swtpm.</td>
+        </tr>
+        <tr>
+          <td>ACPI DSDT AML body</td>
+          <td><span class="severity-med">MEDIUM</span></td>
+          <td>OEM headers are correct (ALASKA/AMI) but the AML device methods inside the DSDT still
+            contain QEMU-internal device names. Next step: obtain a real ASUS DSDT, decompile with
+            <code>iasl -d</code>, clean the AML, recompile, and inject via
+            <code>-acpitable</code>.</td>
+        </tr>
+        <tr>
+          <td>CPU cache topology</td>
+          <td><span class="severity-low">LOW</span></td>
+          <td>Host is a Ryzen 9 9950X3D with 3D V-Cache — an unusual cache structure. The 16 vCPU
+            guest leaks this via CPUID cache topology leaves, inconsistent with the spoofed
+            board identity.</td>
+        </tr>
+        <tr>
+          <td>Emulated NIC</td>
+          <td><span class="severity-low">LOW</span></td>
+          <td><code>e1000e</code> has a real Intel device ID but is still emulated. Physical NIC
+            passthrough via VFIO would be cleaner.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>The project is currently held at <code>snapshot5</code> — a stable state with EAC and Denuvo
+      cleared — while the Vanguard surfaces are researched. TPM passthrough (pending an upstream QEMU
+      fix for the buffer mismatch) and a clean ASUS DSDT are the next two milestones.</p>
+
+    <h2>How it maps to security work</h2>
+    <p>This project spans several domains simultaneously. The passthrough layer is hands-on Linux
+      kernel internals — IOMMU, PCI device trees, <code>sysfs</code> driver binding, runtime module
+      management, and least-privilege automation. The stealth layer goes deeper: reading and
+      manipulating ACPI AML bytecode, understanding CPUID at the instruction level, and
+      systematically enumerating a system's fingerprint the same way an adversarial kernel driver
+      would.</p>
+    <p>The anti-cheat research maps directly to <strong>reverse engineering</strong> and
+      <strong>defensive security</strong>. Understanding the detection surface of
+      <code>vgk.sys</code> requires the same mental model as writing a kernel driver. Enumerating
+      what a ring-0 service sees during early boot is the same methodology used to audit any
+      boot-start rootkit or UEFI implant.</p>
+
+    <div class="note"><p><strong>Note.</strong> Built and run entirely on hardware I own, as a
+      personal lab environment for learning systems internals, kernel driver behaviour, and
+      anti-cheat research.</p></div>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+</body>
+</html>

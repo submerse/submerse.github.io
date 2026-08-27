@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CTF &amp; Box Writeups // HANDLE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+  /* small page-specific list styling */
+  .wlist{list-style:none;margin:8px 0 0;padding:0}
+  .wlist li{border:1px solid var(--line);border-radius:8px;background:var(--bg-card);
+    padding:18px 20px;margin-bottom:12px;transition:border-color .2s,transform .2s}
+  .wlist li:hover{border-color:var(--accent-dim);transform:translateY(-2px)}
+  .wlist a{font-family:var(--mono);color:var(--text);text-decoration:none;font-size:17px}
+  .wlist a:hover{color:var(--accent)}
+  .wlist .row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .wlist .diff{font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);
+    border-radius:4px;padding:3px 8px;color:var(--accent-dim);white-space:nowrap}
+  .wlist .blurb{color:var(--text-dim);font-size:14.5px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 08 · pentesting</div>
+      <h1>CTF &amp; Box Writeups</h1>
+      <div class="meta"><span>enumeration</span><span>exploitation</span><span>privilege escalation</span></div>
+    </header>
+
+    <h2>Approach</h2>
+    <p>Each writeup follows the same arc: enumeration, the foothold, privilege escalation,
+      and a short <em>"what I'd do differently"</em> reflection. I focus on the reasoning —
+      why I chased a given lead — rather than just pasting commands, because that's the part
+      that actually demonstrates methodology.</p>
+
+    <h2>Writeups</h2>
+    <!-- Each entry can link to its own page, a markdown file, or an external post (Medium/GitHub).
+         Duplicate an <li> to add more. -->
+    <ul class="wlist">
+      <li>
+        <div class="row">
+          <a href="#">Box Name — short hook</a>
+          <span class="diff">Easy</span>
+        </div>
+        <div class="blurb">SQLi foothold → credential reuse → sudo misconfiguration to root. Replace this with a real one.</div>
+      </li>
+      <li>
+        <div class="row">
+          <a href="#">Box Name — short hook</a>
+          <span class="diff">Medium</span>
+        </div>
+        <div class="blurb">SSRF to internal service, then a deserialization bug for RCE. Replace this with a real one.</div>
+      </li>
+      <li>
+        <div class="row">
+          <a href="#">Box Name — short hook</a>
+          <span class="diff">Hard</span>
+        </div>
+        <div class="blurb">AD enumeration, Kerberoasting, and abusing a delegation path to DA. Replace this with a real one.</div>
+      </li>
+    </ul>
+
+    <h2>How it maps to security work</h2>
+    <p>This is the closest thing to the day-to-day of a <strong>penetration tester</strong>:
+      structured enumeration, chaining vulnerabilities into a foothold, escalating privilege,
+      and — crucially — writing it up clearly. The reporting matters as much as the exploitation
+      in real engagements.</p>
+
+    <div class="note"><p><strong>Tip.</strong> Link active boxes only after they retire (HTB rules),
+      and keep these methodology-focused — that's what reads as professional rather than a flag dump.</p></div>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+    <div class="note"><p><strong>Note.</strong> Built and run entirely on hardware I own, as a
+      personal lab environment for learning systems and security tooling.</p></div>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+<script data-goatcounter="https://submerse.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+</body>
+</html>
+</body>
+</html>

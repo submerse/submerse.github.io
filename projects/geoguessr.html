@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OSINT &amp; Geolocation // HANDLE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+  <article class="doc">
+    <header>
+      <div class="tag">project 04 · OSINT</div>
+      <h1>OSINT &amp; Geolocation</h1>
+      <div class="meta"><span>geolocation</span><span>image analysis</span><span>OSINT</span><span>GeoGuessr</span></div>
+    </header>
+    <a href="https://www.geoguessr.com/user/66f1ae816140191c33509f1c" target="_blank" rel="noopener" class="geo-link">@Geoguessr↗</a>
+    <h2>Overview</h2>
+    <p>Geolocation is the OSINT discipline of working out <em>where</em> an image was taken from
+      the visual evidence inside it — the same skill open-source investigators use to verify
+      footage and place photos. I train it competitively in GeoGuessr, where you're dropped into
+      a street-view panorama with no metadata and have to reason your way to a precise location.
+    </p>
+
+    <h2>How I read a location</h2>
+    <p>It's a deduction process, not a guess. The cues I stack up:</p>
+    <ul>
+      <li><strong>Road &amp; infrastructure:</strong> line markings, bollard shapes, guardrail types, utility-pole design, driving side.</li>
+      <li><strong>Language &amp; script:</strong> signage alphabet, language, and even font conventions narrow the country fast.</li>
+      <li><strong>Environment:</strong> vegetation, soil colour, and biome place the latitude band; mountains vs. plains do the rest.</li>
+      <li><strong>Architecture:</strong> building styles, roofing, fence and window patterns are strong regional tells.</li>
+      <li><strong>Sun &amp; shadow:</strong> shadow direction plus hemisphere gives a rough heading and latitude.</li>
+      <li><strong>Camera meta:</strong> the street-view generation/car, camera blur, and rig artifacts often pins down the specific country very accurately.</li>
+    </ul>
+
+    <h2>Best guesses</h2>
+<p>A few standout rounds, with the reasoning that got me there:</p>
+
+<!-- OPTION A: a montage / single clutch round (unlisted YouTube) -->
+<figure>
+  <div class="video"><iframe src="https://www.youtube.com/embed/Q_8lh30UZo8" title="GeoGuessr highlight round" allowfullscreen></iframe></div>
+  <figcaption class="vid-cap">fig. 1 - Vladivostok 4999/5000 Points </figcaption>
+</figure>
+
+<figure>
+  <div class="video"><iframe src="https://www.youtube.com/embed/RqZBcX6AYZ8" title="GeoGuessr highlight round" allowfullscreen></iframe></div>
+  <figcaption class="vid-cap">fig. 2 — Eden 4994/5000 Points </figcaption>
+</figure>
+
+<figure>
+  <div class="video"><iframe src="https://www.youtube.com/embed/55MziDDS9i8" title="GeoGuessr highlight round" allowfullscreen></iframe></div>
+  <figcaption class="vid-cap">fig. 3 — Pardes Hanna-Karkur 4999/5000 Points</figcaption>
+</figure>
+
+<figure>
+  <div class="video"><iframe src="https://www.youtube.com/embed/cLnNKvM-VxM" title="GeoGuessr highlight round" allowfullscreen></iframe></div>
+  <figcaption class="vid-cap">fig. 4 — Montevideo 5000/5000 Points </figcaption>
+</figure>
+
+<figure>
+  <div class="video"><iframe src="https://www.youtube.com/embed/jZ1Rfcf1kRQ" title="GeoGuessr highlight round" allowfullscreen></iframe></div>
+  <figcaption class="vid-cap">fig. 5 — Comodoro Rivadavia 4996/5000 Points </figcaption>
+</figure>
+
+    <h2>How it maps to security work</h2>
+    <p>Geolocation is a core <strong>OSINT</strong> capability used in threat intelligence,
+      investigations, and incident response — verifying where a photo or video originated,
+      corroborating claims, and building context from open sources. The underlying habit —
+      extracting maximum signal from minimal evidence and reasoning to a conclusion — is exactly
+      what investigative security work rewards.</p>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+</body>
+<script data-goatcounter="https://submerse.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+</html>
