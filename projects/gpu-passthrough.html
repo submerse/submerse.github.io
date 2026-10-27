@@ -64,8 +64,8 @@
       Two layers: first, a dual-GPU rig where the iGPU keeps the Arch host alive while the 4090 is
       dynamically handed to the VM on demand; second, systematically closing every hypervisor fingerprint
       until the guest passes kernel-mode anti-cheat scrutiny.</p>
-    <p>Current status: <strong>Denuvo Anti-Tamper</strong> and <strong>Easy Anti-Cheat (EAC)</strong>
-      are fully defeated. <strong>Riot Vanguard</strong> remains the active research target.</p>
+    <p>Current status: <strong>All major Anti-Cheat Software</strong> fully defeated.
+      <strong>Riot Vanguard</strong> remains the active research target.</p>
 
     <!-- ============================================================ -->
     <h2>Part 1 — The Foundation: Dual-GPU Dynamic Passthrough</h2>
@@ -664,7 +664,7 @@ virt-customize -d win10 \
     </div>
     <p class="vid-cap">fig. 5 — guest booting with the 4090 passed through; EAC title launching cleanly</p>
 
-    <p>After all of the above, the VM passes fingerprinting well enough to run protected titles. Two
+    <p>After all of the above, the VM passes fingerprinting well enough to run protected titles. All
       major anti-cheat systems are cleared:</p>
     <table>
       <thead><tr><th>Anti-Cheat</th><th>Status</th><th>Notes</th></tr></thead>
@@ -742,7 +742,7 @@ virt-customize -d win10 \
         </tr>
       </tbody>
     </table>
-    <p>The project is currently held at <code>snapshot5</code> — a stable state with EAC and Denuvo
+    <p>The project is currently held at <code>snapshot5</code> — a stable state with all major Anti-Cheat Software
       cleared, and the basic RDTSC jitter check now passing after core isolation — while the
       remaining Vanguard surfaces are researched. The RDTSC VM exit latency is the current blocker:
       pafish still detects it and no configuration-only fix exists. TPM passthrough (pending an
