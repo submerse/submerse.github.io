@@ -64,7 +64,7 @@
       Two layers: first, a dual-GPU rig where the iGPU keeps the Arch host alive while the 4090 is
       dynamically handed to the VM on demand; second, systematically closing every hypervisor fingerprint
       until the guest passes kernel-mode anti-cheat scrutiny.</p>
-    <p>Current status: <strong>All major Anti-Cheat Software</strong> fully defeated.
+    <p>Current status: <strong>Almost all major Anti-Cheat Software</strong> fully defeated.
       <strong>Riot Vanguard</strong> remains the active research target.</p>
 
     <!-- ============================================================ -->
@@ -742,7 +742,7 @@ virt-customize -d win10 \
         </tr>
       </tbody>
     </table>
-    <p>The project is currently held at <code>snapshot5</code> — a stable state with all major Anti-Cheat Software
+    <p>The project is currently held at <code>snapshot5</code> — a stable state with almost all major Anti-Cheat Software
       cleared, and the basic RDTSC jitter check now passing after core isolation — while the
       remaining Vanguard surfaces are researched. The RDTSC VM exit latency is the current blocker:
       pafish still detects it and no configuration-only fix exists. TPM passthrough (pending an
