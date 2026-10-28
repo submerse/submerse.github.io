@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Detecting Hardware Input Emulation // submerse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 07 · anti-cheat research</div>
+      <h1>Detecting Hardware Input Emulation</h1>
+      <div class="meta"><span>HID security</span><span>anti-cheat</span><span>USB</span><span>behavioural detection</span><span>telemetry</span></div>
+    </header>
+
+    <h2>The problem</h2>
+    <p>A whole class of game cheating moves the cheat off the computer entirely. A microcontroller
+      such as an Arduino Leonardo, paired with a USB host shield, sits between a real mouse and the
+      PC: it reads the player's screen (often via a second device or capture path), decides where the
+      crosshair should go, and injects movement while presenting itself to the operating system as an
+      ordinary USB mouse. To the host, it <em>is</em> a standard HID. This project is a study of why
+      that's so hard to detect, and how anti-cheat development has responded — written from the
+      defender's side, because that's the interesting and useful half.</p>
+
+    <h2>Why naïve detection fails</h2>
+    <p>The defender's first instinct — "look for the cheat process / injected code" — finds nothing,
+      because there's nothing on the machine to find:</p>
+    <ul>
+      <li><strong>It's a genuine USB device.</strong> The microcontroller enumerates as a real HID, so "is this a legitimate input device?" answers yes at the protocol level.</li>
+      <li><strong>No memory contact.</strong> Like the screen-only approach, nothing reads or writes game memory, so kernel anti-cheat's strongest signals have nothing to bind to.</li>
+      <li><strong>Input looks "real" by construction.</strong> The movement arrives through the normal HID pipeline, indistinguishable from a mouse at the point of entry.</li>
+    </ul>
+    <p>So the detection problem can't live at "is there a cheat present?" It has to move to "is this
+      input being produced by a human?" and "is this device what it claims to be?"</p>
+
+    <h2>Where detection actually has to live</h2>
+    <ul>
+      <li><strong>Behavioural / movement analysis.</strong> Human aim has signatures — micro-tremor, overshoot-and-correct, reaction-time distributions, acceleration curves that vary shot to shot. Synthetic aim that snaps or tracks too cleanly, or reacts faster than human latency allows, shows up as a statistical outlier even when the input path looks legitimate. This is the most durable signal because it targets the behaviour, not the tool.</li>
+      <li><strong>Device &amp; descriptor fingerprinting.</strong> USB descriptors, reporting intervals, vendor/product identifiers and timing characteristics can betray a microcontroller emulating a mouse versus a genuine retail mouse — which is why firmware-level detection has been a focus (more below).</li>
+      <li><strong>Server-side modelling.</strong> Moving detection off the trusted-but-bypassable client to aggregate, hard-to-spoof patterns observed across many sessions.</li>
+      <li><strong>Trusted-input attestation.</strong> The longer-term direction: raising the bar on proving input genuinely originated from an attested device path rather than a synthesiser.</li>
+    </ul>
+
+    <h2>The Vanguard cat-and-mouse</h2>
+    <p>This isn't hypothetical — it's an active front. Public reporting on Riot's Vanguard describes
+      these hardware setups masking themselves as a mouse or keyboard and running the cheat off-host,
+      and indicates Riot has been targeting Arduino-style devices for years — with detection of these
+      devices reported since roughly 2021–2022, thought to work in part through firmware-level
+      identification, while cheat developers continue finding circumvention paths. It's a textbook
+      detection-engineering arms race: defenders identify a hardware-evasion class, ship detection for
+      its observable fingerprints, attackers adjust the fingerprint, and the signal of last resort
+      keeps shifting toward behaviour, which is far harder to fake convincingly than a device ID.</p>
+
+    <h2>Proof of concept</h2>
+    <p>To ground the analysis in practice rather than only theory, I built and bench-tested an
+      end-to-end proof of concept — the microcontroller-and-host-shield input path driven by
+      screen-side detection — evaluated strictly against bots in an offline environment. The
+      educational value was in the <em>interfacing</em>: bridging a real-time screen-analysis
+      pipeline, a serial protocol, and a physical HID peripheral into one working closed loop, and
+      handling the coordinate translation and timing between the software and the hardware device.
+      That's the transferable skill the project demonstrates — taking a system from idea to working
+      hardware/software integration and verifying it empirically, which is how you reason credibly
+      about a technique instead of guessing at it.</p>
+
+    <h2>What I took from it</h2>
+    <p>The point of the project was to understand, at the hardware/software boundary, why
+      "it looks like a real mouse" defeats device-layer checks and forces detection up the stack into
+      behaviour and server-side analysis. That reasoning generalises well beyond games:</p>
+    <ul>
+      <li><strong>HID and peripheral security</strong> — the same trust problem behind malicious-USB / BadUSB defence, where a device's claimed identity can't be taken at face value.</li>
+      <li><strong>Bot / automation detection and anti-fraud</strong> — distinguishing human from synthetic interaction is the same core problem, whether the adversary is an aimbot or a credential-stuffing script.</li>
+      <li><strong>The trusted-client lesson</strong> — anything the client reports can be spoofed, so high-assurance detection ends up behavioural and server-side. That principle shows up everywhere from anti-cheat to EDR to fraud.</li>
+    </ul>
+
+    <div class="note"><p><strong>Context &amp; ethics.</strong> A personal project for educational and
+      research purposes only, focused on the detection problem — how anti-cheat development identifies
+      hardware-emulated input — studied on my own equipment against bots / offline targets only. It was
+      not used against live players or distributed. This page documents the defender-side analysis, the
+      hardware/software interfacing involved, and the public state of the Vanguard arms race; it is not
+      a build guide and no tooling is published here.</p></div>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+</body>
+</html>
