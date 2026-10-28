@@ -10,21 +10,7 @@
 <link rel="stylesheet" href="../style.css">
 <style>
 
- /* clickable gallery + fullscreen lightbox */
-  .shots img{cursor:zoom-in}
-  .lightbox{position:fixed;inset:0;z-index:999;display:none;
-    background:rgba(10,12,16,.92);align-items:center;justify-content:center;cursor:zoom-out}
-  .lightbox.open{display:flex}
-  .lightbox img{max-width:92vw;max-height:92vh;border:1px solid var(--line);border-radius:8px}
-  .lightbox .x{position:absolute;top:18px;right:24px;font-family:var(--mono);
-    font-size:26px;color:var(--text-dim);cursor:pointer;line-height:1}
-  .lightbox .x:hover{color:var(--accent)}
-  
-  /* spec table for this page */
-  .specs{width:100%;border-collapse:collapse;margin:8px 0 8px;font-size:15.5px}
-  .specs td{padding:11px 14px;border:1px solid var(--line);vertical-align:top}
-  .specs td:first-child{font-family:var(--mono);color:var(--magenta);width:34%;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
-  .specs td:last-child{color:var(--text-dim)}
+
   /* page-local additions, built from the shared Nord tokens */
   table { width:100%; border-collapse:collapse; margin:8px 0 22px; font-family:var(--mono); font-size:13.5px; }
   th { text-align:left; color:var(--accent); border-bottom:2px solid var(--line); padding:8px 10px; }
