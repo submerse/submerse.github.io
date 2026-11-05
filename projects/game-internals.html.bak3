@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Internals &amp; Anti-Cheat Research // HANDLE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 01 · reverse engineering</div>
+      <h1>Game Internals &amp; Anti-Cheat Research</h1>
+      <div class="meta"><span>C++</span><span>x86</span><span>memory analysis</span><span>DLL injection</span><span>hooking</span></div>
+    </header>
+
+    <h2>Overview</h2>
+    <p>A reverse-engineering study of a game engine's runtime memory model, done to
+      understand how cheat techniques work mechanically and — more importantly — how
+      anti-cheat systems detect them. The goal was learning low-level Windows internals
+      and RE methodology, not gaining an advantage in live play.</p>
+
+    <h2>What I built / figured out</h2>
+    <ul>
+      <li><strong>Memory model mapping:</strong> located the entity list and resolved multi-level pointer chains to read player state reliably across updates.</li>
+      <li><strong>World-to-screen:</strong> reimplemented the engine's view-matrix math to project 3D positions to 2D screen space (the basis of an ESP overlay).</li>
+      <li><strong>Injection &amp; hooking:</strong> used DLL injection and function hooking to intercept and observe engine calls at runtime.</li>
+      <li><strong>Detection surface:</strong> documented what each technique exposes to an anti-cheat — handle access patterns, injected modules, hook signatures — and how detection vs. evasion plays out.</li>
+    </ul>
+
+    <h2>Demo (proof of concept)</h2>
+    <p>Short recorded demo on a private/offline setup, showing the technique rather than gameplay:</p>
+    <!-- EMBED: upload clip to YouTube as UNLISTED, paste embed URL. No video files in the repo. -->
+    <div class="video"><iframe src="https://www.youtube.com/embed/VIDEO_ID" title="Proof of concept" allowfullscreen></iframe></div>
+    <p class="vid-cap">fig. world-to-screen ESP on a local/offline target</p>
+
+    <h2>Selected technique (snippet)</h2>
+    <p>An illustrative slice of the world-to-screen projection — included to show the reasoning, not as runnable cheat software:</p>
+    <pre>// view-matrix projection: world (x,y,z) -> screen (sx,sy)
+bool WorldToScreen(const Vec3&amp; pos, const float m[16], Vec2&amp; out) {
+    float w = m[12]*pos.x + m[13]*pos.y + m[14]*pos.z + m[15];
+    if (w &lt; 0.01f) return false;            // behind the camera
+    float x = m[0]*pos.x + m[1]*pos.y + m[2]*pos.z + m[3];
+    float y = m[4]*pos.x + m[5]*pos.y + m[6]*pos.z + m[7];
+    out.x = (screenW * 0.5f) * (1.f + x / w);
+    out.y = (screenH * 0.5f) * (1.f - y / w);
+    return true;
+}</pre>
+
+    <h2>How it maps to security work</h2>
+    <p>These are the same primitives used in <strong>malware analysis</strong> and
+      <strong>red teaming</strong>: reading and writing another process's memory,
+      resolving pointers in a live address space, injecting code, hooking API calls,
+      and reasoning about what a defensive product (here anti-cheat; in industry, EDR)
+      can observe and how evasion is detected.</p>
+
+    <div class="note"><p><strong>Context &amp; ethics.</strong> Conducted on my own systems
+      against offline/local targets to learn reverse engineering and Windows internals.
+      No software was deployed against live players, and no runnable cheat is distributed
+      here — this page documents technique and analysis only.</p></div>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU-Passthrough Virtualization Lab // submerse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
+
+  <article class="doc">
+    <header>
+      <div class="tag">project 02 · systems &amp; virtualization</div>
+      <h1>GPU-Passthrough Virtualization Lab</h1>
+      <div class="meta"><span>KVM/QEMU</span><span>VFIO</span><span>IOMMU</span><span>Linux</span><span>isolation</span></div>
+    </header>
+
+    <h2>Overview</h2>
+    <p>I built a Linux host running KVM/QEMU that passes my GPU straight through to a Windows VM for
+      near-native performance — but with a twist most passthrough setups don't do: it's a
+      <strong>single-GPU, dynamically bound</strong> rig. There's only one 4090 in the machine, and
+      rather than isolating it at boot (which would leave the host without a GPU), I bind and unbind it
+      on demand. The card lives on the host for my X session and local-LLM work, and gets handed to the
+      VM only when I want it — then handed back cleanly afterwards.</p>
+
+    <h2>What it involved</h2>
+    <ul>
+      <li><strong>IOMMU &amp; VFIO:</strong> enabled IOMMU, inspected IOMMU groups, and drive the <code>vfio-pci</code> binding at runtime rather than at boot, so the host keeps the GPU until I explicitly release it.</li>
+      <li><strong>Guest configuration:</strong> configured the QEMU/libvirt domain with the passed-through GPU, CPU pinning, and hugepages for stable performance.</li>
+      <li><strong>Isolation goals:</strong> a snapshot-based, network-segmented guest I can revert — a safe place to detonate samples and run RE tooling without touching the host.</li>
+      <li><strong>Troubleshooting:</strong> worked through the usual passthrough pain — group splitting, vendor-reset quirks, and getting the host to hand off the device.</li>
+    </ul>
+
+    <h2>Dynamic single-GPU passthrough</h2>
+    <p>The interesting part is the handoff. With one GPU, the workflow is: do my normal host work
+      (X session, local LLM inference) on the 4090; when I want the VM, I log out of the X session,
+      run the script below, and it tears the GPU off the host, binds it to <code>vfio-pci</code>, and
+      boots the VM with the card. When I shut the VM down, the driver is gracefully reattached to the
+      host and it's ready to serve my X session or LLM work again — no reboot, no second GPU.</p>
+    <p>An orchestration script ties it together: it frees the GPU host-side (including stopping the
+      llama-server from my <a href="local-llm.html">offline-LLM project</a>), binds to VFIO via a
+      root helper, starts the VM, waits for it to power off, then unbinds and returns the card to the
+      host:</p>
+    <pre>#!/bin/bash
+VM_NAME="win10"
+export LIBVIRT_DEFAULT_URI=qemu:///system
+export XDG_RUNTIME_DIR=/run/user/1000
+export PULSE_SERVER=/run/user/1000/pulse/native
+
+# Check VM exists
+if ! virsh dominfo $VM_NAME &amp;&gt;/dev/null; then
+    echo "ERROR: VM '$VM_NAME' not found"; exit 1
+fi
+
+# Load vfio module if needed
+if ! lsmod | grep -q vfio_pci; then
+    sudo modprobe vfio-pci
+fi
+
+# Free the GPU on the host side (stop local LLM server)
+killall llama-server 2&gt;/dev/null
+sleep 2
+
+# Bind GPU to vfio (root via sudoers)
+echo "Binding 4090 to vfio..."
+sudo /usr/local/bin/vfio-bind.sh bind
+
+# Start VM as regular user (keeps PulseAudio access)
+echo "Starting VM..."
+virsh start $VM_NAME || { sudo /usr/local/bin/vfio-bind.sh unbind; exit 1; }
+
+echo "VM running — waiting for shutdown..."
+while true; do
+    STATE=$(virsh domstate $VM_NAME 2&gt;/dev/null)
+    [ "$STATE" = "shut off" ] || [ "$STATE" = "crashed" ] &amp;&amp; break
+    sleep 5
+done
+
+# Graceful return to host
+echo "VM stopped"
+sudo /usr/local/bin/vfio-bind.sh unbind
+echo "Done — 4090 returned to host"</pre>
+    <p>A few details that made it robust: the GPU release is wrapped so a failed VM start still unbinds
+      and restores the host; the bind/unbind helper runs as root through a tight sudoers rule while the
+      VM itself starts as the regular user to keep PulseAudio audio; and the script blocks on VM state
+      so the card is only reclaimed once the guest has fully powered off.</p>
+
+    <p>The low-level work is done by the small root helper it calls, <code>vfio-bind.sh</code>. This is
+      where the actual driver swap happens — note it handles <em>both</em> PCI functions of the card
+      (the GPU at <code>.0</code> and its HDMI-audio device at <code>.1</code>, which share an IOMMU
+      group and must move together), unbinding from the NVIDIA driver, overriding to
+      <code>vfio-pci</code>, and reversing the whole thing on the way back to the host:</p>
+    <pre>#!/bin/bash
+GPU_IDS=("0000:01:00.0" "0000:01:00.1")   # GPU + its HDMI-audio function
+NVIDIA_DRIVER="nvidia"
+
+bind_vfio() {
+    for id in "${GPU_IDS[@]}"; do
+        if [ -e /sys/bus/pci/devices/$id/driver ]; then
+            echo $id &gt; /sys/bus/pci/devices/$id/driver/unbind
+        fi
+        echo "vfio-pci" &gt; /sys/bus/pci/devices/$id/driver_override
+        echo $id &gt; /sys/bus/pci/drivers/vfio-pci/bind
+    done
+}
+
+unbind_vfio() {
+    for id in "${GPU_IDS[@]}"; do
+        echo "" &gt; /sys/bus/pci/devices/$id/driver_override
+        if [ -e /sys/bus/pci/devices/$id/driver ]; then
+            echo $id &gt; /sys/bus/pci/devices/$id/driver/unbind
+        fi
+        echo $id &gt; /sys/bus/pci/drivers/$NVIDIA_DRIVER/bind
+    done
+}
+
+case "$1" in
+    bind)   bind_vfio ;;
+    unbind) unbind_vfio ;;
+esac</pre>
+    <p>Driving the rebind manually through sysfs (<code>driver_override</code> plus explicit
+      unbind/bind) rather than relying on boot-time driver blacklisting is what makes the on-demand
+      handoff possible — the GPU is never claimed by VFIO until this runs, and is handed straight back
+      to the <code>nvidia</code> driver afterwards.</p>
+
+
+    <p>Optional screen recording of the build / the VM booting with the passed-through GPU:</p>
+    <!-- EMBED: unlisted YouTube. Delete this block if you'd rather keep it text-only. -->
+    <div class="video"><iframe src="https://www.youtube.com/embed/VIDEO_ID" title="GPU passthrough walkthrough" allowfullscreen></iframe></div>
+    <p class="vid-cap">fig. guest booting with the dedicated GPU bound via VFIO</p>
+
+    <h2>How it maps to security work</h2>
+    <p>Isolated, revertible VMs are the backbone of any <strong>malware analysis</strong> or
+      <strong>detonation lab</strong>, and the underlying concepts — device isolation, IOMMU,
+      runtime driver/device rebinding, hypervisor configuration, network segmentation — are core to
+      understanding both virtualization security and how analysts safely study hostile code. The
+      single-GPU dynamic handoff in particular is a real exercise in Linux internals, kernel driver
+      binding, and least-privilege automation (root only for the bind step, via a scoped sudoers rule).</p>
+
+    <div class="note"><p><strong>Note.</strong> Built and run entirely on hardware I own, as a
+      personal lab environment for learning systems and security tooling.</p></div>
+  </article>
+
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+</body>
+</html>
