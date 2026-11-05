@@ -359,8 +359,7 @@ cd ~/llama.cpp/build/bin || exit
     <ul>
       <li><strong>Prompt processing is the weak spot.</strong> Generation touches a few experts per token, but a long prompt touches nearly all of them. Large micro-batches and chunked prefill soften this but don't remove it, so long-document work feels it more than chat does.</li>
       <li><strong>Memory capacity is still a hard limit.</strong> Sparsity doesn't let a 200 GB model run in 120 GB at usable speed; it only makes slow memory fast enough to be useful. The 284–320B models fit only because they're quantized to about 2–3 bits, which costs some quality.</li>
-      <li><strong>RAM speed matters more than GPU speed here.</strong> Faster DDR5 or more memory channels would raise generation speed more than a faster GPU would.</li>
-      <li><strong>The machine becomes a dedicated server.</strong> These models push both VRAM and RAM to their limits, so the box runs headless with nothing else loaded. Cold starts are slow too: loading tens of gigabytes from NVMe takes minutes, so the server stays up between sessions.</li>
+      <li><strong>RAM speed matters more than GPU speed here.</strong> Faster DDR5 or more memory channels would raise generation speed more than a faster GPU would.</li
     </ul>
 
     <h3>Security changes made in this update</h3>
