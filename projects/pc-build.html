@@ -1,392 +1,128 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Self-Hosted Offline LLM Lab — Local Inference &amp; MoE Offload // submerse</title>
-  <meta name="description" content="A private LLM lab on one RTX 4090: a quantized 24B model fully on GPU, then 100B+ mixture-of-experts models split across VRAM, RAM and NVMe, served over the LAN.">
-  <link rel="stylesheet" href="../style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Custom Workstation Build // submerse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+ /* clickable gallery + fullscreen lightbox */
+  .shots img{cursor:zoom-in}
+  .lightbox{position:fixed;inset:0;z-index:999;display:none;
+    background:rgba(10,12,16,.92);align-items:center;justify-content:center;cursor:zoom-out}
+  .lightbox.open{display:flex}
+  .lightbox img{max-width:92vw;max-height:92vh;border:1px solid var(--line);border-radius:8px}
+  .lightbox .x{position:absolute;top:18px;right:24px;font-family:var(--mono);
+    font-size:26px;color:var(--text-dim);cursor:pointer;line-height:1}
+  .lightbox .x:hover{color:var(--accent)}
+  
+  /* spec table for this page */
+  .specs{width:100%;border-collapse:collapse;margin:8px 0 8px;font-size:15.5px}
+  .specs td{padding:11px 14px;border:1px solid var(--line);vertical-align:top}
+  .specs td:first-child{font-family:var(--mono);color:var(--magenta);width:34%;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  .specs td:last-child{color:var(--text-dim)}
+</style>
 </head>
 <body>
-  <div class="wrap narrow">
+<div class="wrap narrow">
+  <nav><a href="../index.html">← back</a></nav>
 
-    <nav><a href="../index.html">← back</a></nav>
+  <article class="doc">
+    <header>
+      <div class="tag">project 0 · systems &amp; hardware</div>
+      <h1>Custom Workstation Build</h1>
+      <div class="meta"><span>hardware</span><span>assembly</span><span>thermals</span><span>Ryzen</span><span>workstation</span></div>
+    </header>
 
-<article class="doc">
+    <h2>Overview</h2>
+    <p>A high-end workhorse I planned, sourced, and assembled from scratch — every
+      component chosen for compatibility, thermals, and the kind of sustained load my projects
+      throw at it (ML inference, VMs, GPU-passthrough labs). It doubles as the rig the rest of this
+      portfolio is built and tested on.</p>
 
-  <header>
-    <div class="tag">project 03 · ml-ops &amp; local inference &amp; ai red-team</div>
-    <h1>Self-Hosted Offline LLM Lab</h1>
-    <div class="meta">
-      <span>llama.cpp</span>
-      <span>PolyStrata</span>
-      <span>mixture-of-experts</span>
-      <span>quantization</span>
-      <span>GPU offload</span>
-      <span>Pi agent</span>
-      <span>AI red-team</span>
-    </div>
-  </header>
-
-  <h2>Overview</h2>
-  <p>A private language-model lab running entirely on my own hardware, served over my LAN with no third-party API in the path. It started as a 24-billion-parameter model fitted onto a single RTX 4090 through quantization (Part 1). The November 2026 update pushes the same machine to 117–320-billion-parameter <strong>mixture-of-experts</strong> models by splitting them across VRAM, system RAM and NVMe, and adds a terminal coding agent as the client (Part 2).</p>
-  <p>The point is twofold: the systems engineering of efficient local inference, and a controlled environment for studying model behaviour without sending anything to a cloud provider.</p>
-
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Component</th><th>Hardware</th></tr></thead>
-      <tbody>
-        <tr><td>GPU</td><td>NVIDIA RTX 4090, 24 GB GDDR6X (~1,008 GB/s)</td></tr>
-        <tr><td>CPU</td><td>AMD Ryzen 9 9950X3D, 16 cores / 32 threads</td></tr>
-        <tr><td>RAM</td><td>96 GB DDR5-5600 (2 × 48 GB, dual channel, ~90 GB/s theoretical)</td></tr>
-        <tr><td>Storage</td><td>NVMe SSD for model files</td></tr>
-        <tr><td>OS</td><td>Linux, running headless as a LAN inference server</td></tr>
-      </tbody>
+    <h2>Specs</h2>
+    <table class="specs">
+      <tr><td>CPU</td><td>AMD Ryzen 9 9950X3D — 16-core, 3D V-Cache</td></tr>
+      <tr><td>GPU</td><td>GIGABYTE GeForce RTX 4090 (vertically mounted)</td></tr>
+      <tr><td>Motherboard</td><td>ASUS TUF Gaming B650-Plus WiFi</td></tr>
+      <tr><td>Memory</td><td>G.Skill Trident Z 64 GB DDR5-6400</td></tr>
+      <tr><td>Storage</td><td>WD Black SN8100 2TB (15000MB/s) Firecuda 540  1Tb (9500MB/s) Samsung 980 1TB (6500MB/s) 1x Harddisk 1TB </td></tr>
+      <tr><td>Cooling</td><td>Lian Li 360 mm AIO (LCD pump head) + 6 sets of fans</td></tr>
+      <tr><td>Case</td><td>Lian-Li O11 Dynamic Mini V2 Flow</td></tr>
     </table>
-  </div>
 
-  <h2>Why offline / on-prem matters</h2>
-  <p>Running inference locally is increasingly a security and data-control decision, not just a hobbyist one:</p>
-  <ul>
-    <li><strong>Nothing leaves the network.</strong> Prompts, documents and outputs never touch a vendor's servers: no logging, no training on your data, no third-party retention.</li>
-    <li><strong>Full control of the stack.</strong> You choose the model, the system prompt and the policy, and you can inspect every layer rather than trusting a hosted black box.</li>
-    <li><strong>Air-gap-friendly.</strong> The same setup runs with no internet at all, which matters for sensitive analysis work.</li>
-  </ul>
-
-  <h2>Part 1 — A Dense 24B Model, Fully on One GPU</h2>
-  <p>The first model runs on llama.cpp's server, built from source with the CUDA backend. The launch script is the whole config in one place:</p>
-<pre><code>#!/bin/bash
-cd ~/llama.cpp/build/bin || exit
-
-./llama-server \
-  -m ~/models/Dolphin-Mistral-24B-Venice-Edition.Q6_K.gguf \
-  -ngl 999 \
-  --ctx-size 32768 \
-  --batch-size 512 \
-  --ubatch-size 64 \
-  --cache-type-k q8_0 \
-  --cache-type-v q8_0 \
-  --host 0.0.0.0 \
-  --port 8080</code></pre>
-  <p>Each flag is a deliberate choice to fit a large model on one GPU while keeping it usable:</p>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Setting</th><th>Choice</th></tr></thead>
-      <tbody>
-        <tr><td>Engine</td><td>llama.cpp <code>llama-server</code>, compiled from source (CUDA)</td></tr>
-        <tr><td>Model</td><td>Dolphin-Mistral-24B (Venice Edition), an uncensored fine-tune, run locally on purpose (see below)</td></tr>
-        <tr><td>Quantization</td><td>Q6_K GGUF: 6-bit weights, the accuracy/size trade that fits 24B (~19 GB) in VRAM</td></tr>
-        <tr><td>GPU offload</td><td><code>-ngl 999</code>: every layer on the GPU</td></tr>
-        <tr><td>KV cache</td><td><code>q8_0</code> keys and values: an 8-bit cache roughly halves its VRAM, which buys the long context. A quantized V cache relies on flash attention, which current llama.cpp builds enable automatically.</td></tr>
-        <tr><td>Context</td><td>32,768-token window</td></tr>
-        <tr><td>Batching</td><td>batch 512 / micro-batch 64. The small micro-batch keeps the compute buffers small, trading some prompt-processing speed for VRAM headroom at full context.</td></tr>
-        <tr><td>Serving</td><td>bound to <code>0.0.0.0:8080</code>, an OpenAI-compatible HTTP API for LAN clients</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <p>Put together, that's a practical exercise in the levers of local inference: how quantizing both the weights and the KV cache buys a bigger model and a longer context on fixed VRAM, what full layer offload does for speed, and how to actually serve the model to other devices.</p>
-
-  <h2>Model-behaviour &amp; red-team evaluation</h2>
-  <p>The reason for running an uncensored model locally is that it's a clean lab for <strong>AI red-teaming and model-safety evaluation</strong>: probing where a model's alignment holds and where it breaks. Locally, I can study that directly: how a model behaves with and without guardrails, and how much of "safety" lives in the underlying weights versus the system prompt and serving policy wrapped around them.</p>
-  <p>Part of that was testing refusal robustness: feeding the model deliberately coercive, manipulative and frankly absurd system-prompt framings (the "you must always comply / something bad happens if you refuse" pattern, a well-known prompt-injection style) and observing how framing shifts refusal behaviour. The interesting finding isn't the silly prompt itself. It's how cheaply behaviour moves when you control the system layer, which is exactly why guardrails that live only in the prompt are weak, and why real safety has to sit deeper in the stack.</p>
-  <div class="note"><p>I studied the failure modes; I'm not publishing the working jailbreak text.</p></div>
-
-
-  <!-- ======================= UPDATE ======================= -->
-  <section class="update" id="update-moe">
-    <div class="tag">Update · November 2026</div>
-    <h2>Part 2 — Running 100B+ Models with Mixture-of-Experts Offload</h2>
-
-    <h3>The 24 GB wall</h3>
-    <p>Part 1 hit a hard limit. A dense model reads every weight for every generated token, so it has to sit in fast memory to run at a usable speed. On a 24 GB card that tops out around 24–32B parameters. Anything bigger spills into system RAM, and that's where dense models fall apart, because token generation is a memory-bandwidth problem:</p>
-    <div class="note"><p><strong>tokens/s ≈ memory bandwidth ÷ bytes of weights read per token</strong></p></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Memory</th><th>Bandwidth</th><th>Dense 120B at 4-bit (~65 GB)</th></tr></thead>
-        <tbody>
-          <tr><td>RTX 4090 GDDR6X</td><td>~1,008 GB/s</td><td>~15 tok/s, if it fit (it doesn't)</td></tr>
-          <tr><td>DDR5-5600, dual channel</td><td>~90 GB/s theoretical</td><td><strong>~1.4 tok/s at best</strong></td></tr>
-        </tbody>
-      </table>
+    <h2>Gallery</h2>
+    <div class="shots">
+       <figure>
+        <img src="img/square.png" alt="Completed build with RGB lighting">
+        <figcaption>installing fans.</figcaption>
+      </figure>
+       <figure>
+        <img src="img/square2.png" alt="Completed build with RGB lighting">
+        <figcaption>installing cpu AIO cooler.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/testing.png" alt="Completed build with RGB lighting">
+        <figcaption>Testing</figcaption>
+      </figure>
+       <figure>
+        <img src="img/no_light2.png" alt="Completed build with RGB lighting">
+        <figcaption>Fully Fledged</figcaption>
+      </figure>
+      <figure>
+        <img src="img/IMG_20260607_154840_134.jpg" alt="Completed build with RGB lighting">
+        <figcaption>Airflow.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/IMG_20260607_154826_905.jpg" alt="Front view of the build">
+        <figcaption>Front profile — radiator up top, intake stack below.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/IMG_20260304_045002_475.jpg" alt="Front view of the build">
+        <figcaption> Icey </figcaption>
+      </figure>
     </div>
-    <p>So a dense 100B+ model on this machine technically runs, but at a speed nobody would use. More RAM doesn't help: the bottleneck is bandwidth, not capacity.</p>
 
-    <h3>Mixture-of-experts — huge models that only use a sliver of themselves</h3>
-    <p>A <strong>mixture-of-experts (MoE)</strong> model replaces each feed-forward block with hundreds of small "expert" networks plus a router. For every token, the router picks only a handful of experts per layer and the rest sit idle. The models in this update all activate roughly 5% of their weights per token:</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Model</th><th>Total params</th><th>Active per token</th><th>Active share</th></tr></thead>
-        <tbody>
-          <tr><td>gpt-oss-120b</td><td>117B</td><td>5.1B</td><td>~4.4%</td></tr>
-          <tr><td>Qwen3.8-Flash-Next</td><td>125B</td><td>~6B</td><td>~4.8%</td></tr>
-          <tr><td>DeepSeek V4 Flash</td><td>284B</td><td>13B</td><td>~4.6%</td></tr>
-          <tr><td>GLM 5.3 Flash</td><td>320B</td><td>18B</td><td>~5.6%</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p>My starting intuition was "only ~10% of the weights are active, so I only need ~10% of the memory." The first half turned out to be right (it's closer to 5%). The second half is the trap:</p>
-    <div class="note"><p><strong>Sparsity reduces what each token reads, not what has to be stored.</strong> The router can pick any expert for the next token, so every weight still has to be resident somewhere: VRAM, RAM or, slowly, the SSD.</p></div>
-    <p>What sparsity does change is bandwidth per token. For gpt-oss-120b, ~5.1B active parameters at ~4.25 bits is about <strong>2.7 GB read per token</strong>, versus ~65 GB for a dense model of the same size. Even served entirely from DDR5, that's a theoretical ceiling in the tens of tokens per second instead of about one. Slow memory becomes viable, as long as it only holds the parts of the model that are used sparsely.</p>
-
-    <h3>Memory budget</h3>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Tier</th><th>Capacity</th><th>Role</th></tr></thead>
-        <tbody>
-          <tr><td>VRAM</td><td>24 GB</td><td>Everything used on every token (attention, router, shared tensors, KV cache), then as many experts as still fit</td></tr>
-          <tr><td>System RAM</td><td>96 GB</td><td>The remaining experts, computed on the CPU, plus the OS (~8 GB kept free)</td></tr>
-          <tr><td>NVMe</td><td>—</td><td>Model files, memory-mapped. A fallback tier: if weights have to be read from here, speed collapses.</td></tr>
-          <tr><td><strong>Usable for weights</strong></td><td><strong>~110 GB</strong></td><td>VRAM + RAM minus OS headroom</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p>That ~110 GB is the real ceiling. The ~120B-class models fit comfortably at 3–4 bits. The 284–320B models only fit at roughly 2–3 bits per weight: DeepSeek V4 Flash's build is a 91 GB file, and GLM 5.3 Flash's builds range from 79 to 114 GB. So the honest claim isn't "any model size": it's <strong>models whose weights are up to about four times the GPU's memory, at interactive speed</strong>.</p>
-
-    <h3>Serving architecture</h3>
-    <figure class="diagram">
-      <div class="diagram-scroll">
-      <svg viewBox="0 0 720 320" role="img" aria-labelledby="arch-title arch-desc" xmlns="http://www.w3.org/2000/svg">
-        <title id="arch-title">Serving architecture</title>
-        <desc id="arch-desc">The Pi coding agent on a workstation connects over the LAN on port 8080 with an API key to a server running either llama-server or PolyStrata. The engine places attention, KV cache and hot experts in 24 GB of VRAM, cold experts in 96 GB of RAM computed on the CPU, and memory-maps model files from the NVMe SSD.</desc>
-        <defs>
-          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent-dim)"/>
-          </marker>
-        </defs>
-        <g style="font-family:var(--mono)">
-          <!-- workstation -->
-          <rect x="16" y="118" width="172" height="88" rx="8" style="fill:var(--bg);stroke:var(--line)"/>
-          <text x="30" y="144" style="fill:var(--magenta);font-size:11px;letter-spacing:1px">WORKSTATION</text>
-          <text x="30" y="168" style="fill:var(--text);font-size:14px">Pi coding agent</text>
-          <text x="30" y="190" style="fill:var(--text-faint);font-size:11px">read·write·edit·bash</text>
-          <!-- LAN link -->
-          <line x1="190" y1="162" x2="238" y2="162" marker-end="url(#arr)" style="stroke:var(--accent-dim);stroke-width:1.5"/>
-          <text x="214" y="150" text-anchor="middle" style="fill:var(--text-dim);font-size:10.5px">LAN</text>
-          <text x="214" y="182" text-anchor="middle" style="fill:var(--text-faint);font-size:10.5px">:8080</text>
-          <text x="214" y="196" text-anchor="middle" style="fill:var(--text-faint);font-size:10.5px">+ key</text>
-          <!-- server -->
-          <rect x="242" y="16" width="462" height="288" rx="10" style="fill:none;stroke:var(--line);stroke-dasharray:5 4"/>
-          <text x="258" y="40" style="fill:var(--magenta);font-size:11px;letter-spacing:1px">SERVER · RTX 4090 · 9950X3D</text>
-          <rect x="258" y="54" width="430" height="58" rx="8" style="fill:var(--bg);stroke:var(--accent-dim)"/>
-          <text x="473" y="80" text-anchor="middle" style="fill:var(--accent);font-size:14px">llama-server  |  PolyStrata</text>
-          <text x="473" y="100" text-anchor="middle" style="fill:var(--text-faint);font-size:11px">one engine at a time · OpenAI-compatible /v1</text>
-          <!-- arrows to tiers -->
-          <line x1="327" y1="112" x2="327" y2="136" marker-end="url(#arr)" style="stroke:var(--accent-dim);stroke-width:1.5"/>
-          <line x1="473" y1="112" x2="473" y2="136" marker-end="url(#arr)" style="stroke:var(--accent-dim);stroke-width:1.5"/>
-          <line x1="619" y1="112" x2="619" y2="136" marker-end="url(#arr)" style="stroke:var(--accent-dim);stroke-width:1.5"/>
-          <!-- VRAM -->
-          <rect x="258" y="140" width="138" height="148" rx="8" style="fill:var(--bg);stroke:var(--line)"/>
-          <text x="272" y="164" style="fill:var(--accent);font-size:13px">VRAM · 24 GB</text>
-          <text x="272" y="190" style="fill:var(--text-dim);font-size:11.5px">attention</text>
-          <text x="272" y="210" style="fill:var(--text-dim);font-size:11.5px">KV cache</text>
-          <text x="272" y="230" style="fill:var(--text-dim);font-size:11.5px">hot experts</text>
-          <text x="272" y="274" style="fill:var(--text-faint);font-size:11px">~1,008 GB/s</text>
-          <!-- RAM -->
-          <rect x="404" y="140" width="138" height="148" rx="8" style="fill:var(--bg);stroke:var(--line)"/>
-          <text x="418" y="164" style="fill:var(--accent);font-size:13px">RAM · 96 GB</text>
-          <text x="418" y="190" style="fill:var(--text-dim);font-size:11.5px">cold experts</text>
-          <text x="418" y="210" style="fill:var(--text-dim);font-size:11.5px">CPU compute</text>
-          <text x="418" y="274" style="fill:var(--text-faint);font-size:11px">~90 GB/s</text>
-          <!-- NVMe -->
-          <rect x="550" y="140" width="138" height="148" rx="8" style="fill:var(--bg);stroke:var(--line)"/>
-          <text x="564" y="164" style="fill:var(--accent);font-size:13px">NVMe SSD</text>
-          <text x="564" y="190" style="fill:var(--text-dim);font-size:11.5px">model files</text>
-          <text x="564" y="210" style="fill:var(--text-dim);font-size:11.5px">memory-mapped</text>
-          <text x="564" y="274" style="fill:var(--text-faint);font-size:11px">fallback tier</text>
-        </g>
-      </svg>
-      </div>
-      <figcaption class="vid-cap">fig. 1 — serving architecture. Pi on the workstation talks to whichever engine is running. Dense, every-token work stays in VRAM; the sparse bulk of the model lives in RAM.</figcaption>
-    </figure>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Layer</th><th>Tool</th><th>Role</th></tr></thead>
-        <tbody>
-          <tr><td>Engine 1</td><td>llama.cpp <code>llama-server</code></td><td>General-purpose. Runs any GGUF, dense or MoE, with manual control over which tensors go to the GPU and which to RAM.</td></tr>
-          <tr><td>Engine 2</td><td>PolyStrata</td><td>Purpose-built for very large MoE models. Places individual experts across VRAM, RAM and SSD by how often they're used.</td></tr>
-          <tr><td>Client</td><td>Pi</td><td>Terminal coding agent on my workstation, talking to whichever engine is up over the LAN.</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p>Only one engine runs at a time, on the same port and with the same API key. That's not a limitation I worked around; it's a consequence of the memory budget. Each of these models wants most of the 96 GB, so two can't be resident together. Because both engines speak the same OpenAI-compatible API, the client never needs to know which one is serving.</p>
-
-    <h3>Engine 1 — llama.cpp hybrid offload (gpt-oss-120b)</h3>
-    <p>Not every tensor in an MoE model is sparse. Attention, embeddings, normalization and the router run on <em>every</em> token; only the routed experts are sparse. That gives a natural split:</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Component</th><th>Access pattern</th><th>Placement</th></tr></thead>
-        <tbody>
-          <tr><td>Attention, shared tensors, router</td><td>Dense, every token</td><td><strong>GPU</strong>: needs GDDR6X bandwidth</td></tr>
-          <tr><td>KV cache</td><td>Every token, grows with context</td><td><strong>GPU</strong></td></tr>
-          <tr><td>Routed experts (most of the file)</td><td>Sparse, 4 of 128 per layer</td><td><strong>RAM</strong>, computed on the CPU</td></tr>
-          <tr><td>Leftover VRAM</td><td>—</td><td>Filled with as many expert layers as fit</td></tr>
-        </tbody>
-      </table>
-    </div>
-<pre><code>#!/bin/bash
-cd ~/llama.cpp/build/bin || exit
-
-./llama-server \
-  -m ~/models/gpt-oss-120b-mxfp4.gguf \
-  -ngl 999 \
-  --n-cpu-moe 28 \
-  -fa on \
-  --ctx-size 32768 \
-  --batch-size 2048 \
-  --ubatch-size 2048 \
-  --threads 16 \
-  --host 0.0.0.0 \
-  --port 8080 \
-  --api-key "$LLM_API_KEY"</code></pre>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Flag</th><th>What it does</th></tr></thead>
-        <tbody>
-          <tr><td><code>-ngl 999</code></td><td>Puts every layer on the GPU by default, so attention and shared tensors land in VRAM…</td></tr>
-          <tr><td><code>--n-cpu-moe N</code></td><td>…then overrides that for expert weights only, keeping the experts of the first N layers in system RAM. This is the key flag.</td></tr>
-          <tr><td><code>-fa on</code></td><td>Flash attention: smaller attention buffers, so more VRAM is left for experts.</td></tr>
-          <tr><td><code>--ubatch-size 2048</code></td><td>The opposite choice from Part 1. With experts in RAM, large micro-batches let llama.cpp stream expert weights to the GPU once per chunk, which speeds up prompt processing considerably.</td></tr>
-          <tr><td><code>--threads 16</code></td><td>One per physical core of the 9950X3D. The CPU computes the RAM-resident experts during generation, so thread count directly affects speed.</td></tr>
-          <tr><td><code>--api-key</code></td><td>Authentication on the LAN endpoint, read from an environment variable rather than hardcoded.</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p>gpt-oss-120b ships with its expert weights natively in MXFP4 (4-bit microscaling floating point), so there's no third-party quantization and no accuracy lost to one. The whole model is ~63 GB, which leaves comfortable headroom in 96 GB of RAM.</p>
-    <p>The only number that really needs tuning is how many expert layers live in RAM:</p>
-    <ol>
-      <li>Start with <code>--n-cpu-moe 36</code>, the model's full layer count, so every expert is in RAM. It's guaranteed to load.</li>
-      <li>Lower it step by step, moving one more expert layer onto the GPU each time, benchmarking each step with <code>llama-bench</code>.</li>
-      <li>Stop when VRAM is within ~1–2 GB of full <strong>with the full 32k context allocated</strong>. Measuring with an empty context gives a misleading result that runs out of memory later in a long session.</li>
-    </ol>
-    <p>An equivalent, finer-grained way to make the same split is to pin tensors with a regex: <code>-ot ".ffn_.*_exps.=CPU"</code>. <code>--n-cpu-moe</code> is the simpler interface; <code>-ot</code> gives per-tensor control.</p>
-
-    <h3>Engine 2 — PolyStrata, frequency-aware expert caching</h3>
-    <p>llama.cpp splits at the level of whole layers: "the experts of layers 0–N go to RAM." <strong>PolyStrata</strong> (an open-source project built on Niko1221's Strata engine) works at the level of <strong>individual experts</strong>, based on how often each one is actually used. Expert usage isn't uniform, so if the hot experts sit in the fastest tier, most of each token's work hits GDDR6X even though the model is several times larger than the card. It's a cache hierarchy applied to model weights.</p>
-    <p>PolyStrata runs these three models through two engines and can switch between them while the server is running:</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Model</th><th>Expert layout</th><th>Build</th><th>On disk</th><th>Engine</th></tr></thead>
-        <tbody>
-          <tr><td>Qwen3.8-Flash-Next</td><td>24,576 experts, 10 per token</td><td>IQ3_S (installer default at 96 GB RAM)</td><td>~52 GiB</td><td>Strata's original engine</td></tr>
-          <tr><td>DeepSeek V4 Flash</td><td>11,008 experts: 256 in each of 43 layers, 6 + 1 shared per layer</td><td>UD-IQ2_XXS (the only size)</td><td>91 GB</td><td>strata-poly (experimental)</td></tr>
-          <tr><td>GLM 5.3 Flash</td><td>12,096 experts: 288 in each of 42 layers, 8 per layer</td><td>reduced build (UD-IQ2_XXS)</td><td>~80–100 GB</td><td>strata-poly (experimental)</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Tier</th><th>What lives there</th></tr></thead>
-        <tbody>
-          <tr><td><strong>VRAM</strong></td><td>Attention, KV cache and the most frequently used experts. The engine counts which experts your workload actually uses and re-chooses at the next start.</td></tr>
-          <tr><td><strong>RAM</strong></td><td>The remaining experts, computed by the CPU in parallel with the GPU.</td></tr>
-          <tr><td><strong>NVMe</strong></td><td>The model files, used in place (memory-mapped, no second copy). For Qwen, also a large lookup table.</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p>Three more techniques stack on top:</p>
+    <h2>What went into it</h2>
     <ul>
-      <li><strong>Speculative decoding.</strong> A small draft model (or a draft block built into the model) guesses the next few tokens, and the big model verifies them in a single pass. Verifying several tokens costs about the same as generating one, so every correct guess is nearly free. The published speedups are 1.6–1.8× for Qwen and 1.1–1.2× for GLM; DeepSeek doesn't use it yet.</li>
-      <li><strong>Chunked prefill.</strong> Long prompts are processed in large chunks (up to 8,192 tokens for Qwen, 1,024 for GLM and DeepSeek), with experts that aren't on the GPU streamed through it once per chunk. This addresses the prompt-processing weak spot of CPU-resident experts.</li>
-      <li><strong>Compressed attention memory (DeepSeek).</strong> DeepSeek V4 Flash reads only the last 128 tokens in full and the rest as compressed rows, about 6.9 KB per token of context. A long context therefore leaves almost all of the VRAM free for experts.</li>
-    </ul>
-    <p>The GLM and DeepSeek engine is explicitly experimental and Linux-only, and its developers have validated it on 32 GB cards. On a 24 GB card, fewer experts fit in VRAM and more of the work falls to the CPU, so I treat those two as stretch models and Qwen3.8-Flash-Next as the daily driver.</p>
-    <p>For LAN access, PolyStrata needs an explicit host setting and an API key, set at install time:</p>
-<pre><code>./setup.sh --setup --host 0.0.0.0 --api-key "$LLM_API_KEY"</code></pre>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Use case</th><th>Engine</th><th>Why</th></tr></thead>
-        <tbody>
-          <tr><td>Qwen3.8-Flash-Next, GLM 5.3 Flash, DeepSeek V4 Flash</td><td>PolyStrata</td><td>Expert-level caching and speculative decoding beat a layer-level split for these models</td></tr>
-          <tr><td>gpt-oss-120b, the dense Dolphin 24B, any new GGUF</td><td>llama.cpp</td><td>Runs anything, full control over every flag, and what I know how to tune and debug</td></tr>
-          <tr><td>Benchmarking</td><td>Both</td><td>The same prompts across engines show what the smarter placement is actually worth</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <h3>Client — Pi as a terminal coding agent</h3>
-    <p>The server runs headless. I work from my workstation through <strong>Pi</strong>, an open-source, minimal terminal coding agent. It ships with four tools (read, write, edit, bash) and leaves the rest to extensions and configuration, which suits this project: it's a thin, inspectable layer, not a black box wrapped around the model.</p>
-<pre><code>npm install -g @earendil-works/pi-coding-agent</code></pre>
-    <p>Custom endpoints go in <code>~/.pi/agent/models.json</code>. Since only one engine runs at a time on the same address, a single provider covers all of them:</p>
-<pre><code>{
-  "providers": {
-    "homelab": {
-      "baseUrl": "http://&lt;server-lan-ip&gt;:8080/v1",
-      "api": "openai-completions",
-      "apiKey": "&lt;LLM_API_KEY&gt;",
-      "models": [
-        { "id": "qwen3.8-flash-next" },
-        { "id": "deepseek-v4-flash" },
-        { "id": "glm-5.3-flash" },
-        { "id": "gpt-oss-120b" },
-        { "id": "dolphin-mistral-24b" }
-      ]
-    }
-  }
-}</code></pre>
-    <p>The model ID is effectively a label: the engine that's running decides what actually answers. The full loop is <strong>Pi on the workstation → LAN → llama-server or PolyStrata on the 4090 box → back</strong>. No prompt, file or line of code leaves the network at any point, which extends Part 1's guarantee from chat to a real agentic coding workflow.</p>
-
-    <h3>Agent security — a new attack surface</h3>
-    <p>Giving a model a shell changes the threat model. A chat model can only produce text; Pi can read and edit files and run bash commands. That means:</p>
-    <ul>
-      <li><strong>Prompt injection becomes command execution.</strong> A malicious instruction hidden in a README, a dependency or a code comment that the agent reads could turn into a shell command. This connects directly to the red-team work: Part 1 showed how cheaply the system layer moves model behaviour, and here the consequence is an action, not just text.</li>
-      <li><strong>An uncensored model with tool access</strong> removes one more layer of defence, so when I pair one with Pi, I treat it as untrusted code execution.</li>
-    </ul>
-    <!-- VERIFY: keep only the mitigations you actually use -->
-    <p>The rules I run it under:</p>
-    <ul>
-      <li>Pi works inside a container with only the project directory mounted, as a non-root user.</li>
-      <li>No credentials, SSH keys or cloud tokens in the agent's environment.</li>
-      <li>Shell commands get reviewed before they run on anything that matters.</li>
+      <li><strong>Component selection:</strong> matching CPU, board, memory and cooling for compatibility and headroom — VRM/board choice for the 9950X3D, DDR5-6400 on the QVL, and a 360 mm AIO sized to the chassis.</li>
+      <li><strong>Thermal &amp; airflow planning:</strong> laying out six fan positions into a coherent intake/exhaust path, with the radiator and GPU placed to keep the 4090 fed with cool air under load.</li>
+      <li><strong>Assembly &amp; cable management:</strong> full build from bare case — standoffs, mounting, vertical GPU riser, AIO install, and routing for a clean back-chamber.</li>
+      <li><strong>Bring-up &amp; validation:</strong> first boot, BIOS/EXPO memory configuration, and thermal/stability testing under sustained CPU and GPU load to confirm the cooling holds.</li>
     </ul>
 
-    <h3>Results</h3>
-    <div class="note"><p>These are ballpark figures compiled from published benchmarks on comparable hardware (24 GB RTX-class cards with DDR5), scaled where needed. They show what this setup should achieve, not yet my own measured runs; I'll replace them with <code>llama-bench</code> and PolyStrata benchmark results.</p></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Setup</th><th>Engine</th><th>Total / active</th><th>Weights</th><th>Generation (tok/s)</th><th>Prompt (tok/s)</th></tr></thead>
-        <tbody>
-          <tr><td>Dolphin-Mistral-24B Q6_K</td><td>llama.cpp, full GPU</td><td>24B / 24B</td><td>~19 GB</td><td>~40</td><td>~2,500</td></tr>
-          <tr><td>gpt-oss-120b MXFP4</td><td>llama.cpp, hybrid split</td><td>117B / 5.1B</td><td>~63 GB</td><td>~25–30</td><td>~500–850</td></tr>
-          <tr><td>Qwen3.8-Flash-Next IQ3_S</td><td>PolyStrata (Strata engine)</td><td>125B / ~6B</td><td>~52 GiB</td><td>~80–120</td><td>~2,000</td></tr>
-          <tr><td>DeepSeek V4 Flash UD-IQ2_XXS</td><td>PolyStrata (strata-poly)</td><td>284B / 13B</td><td>91 GB</td><td>~30–35</td><td>~800–1,000</td></tr>
-          <tr><td>GLM 5.3 Flash (reduced build)</td><td>PolyStrata (strata-poly)</td><td>320B / 18B</td><td>~80–100 GB</td><td>~35–50</td><td>~600–800</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p>The headline: a 125B model generates <strong>two to three times faster</strong> than the dense 24B model from Part 1, despite being five times larger, because each token reads only a fraction of the bytes and the hottest experts sit on the GPU. And a 284B model runs close to the dense 24B's speed. Per-token bandwidth, not parameter count, is what sets the speed.</p>
+    <h2>Why it's here</h2>
+    <p>Beyond being a personal build, it's the foundation the rest of my work runs on — the host for the
+      GPU-passthrough lab, the compute behind the computer-vision and ML experiments, and a practical
+      grounding in PC hardware, thermals, and systems assembly that complements the software side of
+      everything else in this portfolio.</p>
+  </article>
 
-    <h3>Trade-offs and limits</h3>
-    <ul>
-      <li><strong>Prompt processing is the weak spot.</strong> Generation touches a few experts per token, but a long prompt touches nearly all of them. Large micro-batches and chunked prefill soften this but don't remove it, so long-document work feels it more than chat does.</li>
-      <li><strong>Memory capacity is still a hard limit.</strong> Sparsity doesn't let a 200 GB model run in 120 GB at usable speed; it only makes slow memory fast enough to be useful. The 284–320B models fit only because they're quantized to about 2–3 bits, which costs some quality.</li>
-      <li><strong>RAM speed matters more than GPU speed here.</strong> Faster DDR5 or more memory channels would raise generation speed more than a faster GPU would.</li>
-      <li><strong>The machine becomes a dedicated server.</strong> These models push both VRAM and RAM to their limits, so the box runs headless with nothing else loaded. Cold starts are slow too: loading tens of gigabytes from NVMe takes minutes, so the server stays up between sessions.</li>
-    </ul>
-
-    <h3>Security changes made in this update</h3>
-    <p>Reviewing the Part 1 config showed the endpoint was bound to <code>0.0.0.0</code> with <strong>no authentication</strong>: anything on the LAN could query the model, including a compromised IoT device. For a project whose whole point is data control, that was a real gap.</p>
-    <!-- VERIFY: keep only what you've actually configured -->
-    <ul>
-      <li>Both engines now require an API key, loaded from an environment variable and never committed to a repository. The only other copy lives in Pi's local config on the workstation.</li>
-      <li>A host firewall rule allows port 8080 only from my workstation's address.</li>
-    </ul>
-
-    <h3>Extending the red-team work</h3>
-    <p>The update adds a useful comparison point. Part 1 used an <strong>uncensored fine-tune</strong>, which shows behaviour with most of the safety training removed. gpt-oss-120b is a <strong>safety-trained</strong> model, so the same evaluation now has a control. The next round of tests runs the same set of coercive and manipulative system-prompt framings against both models and measures refusal rates under a neutral prompt versus the coercive ones.</p>
-    <p>That shifts the question from "can the prompt layer move behaviour?" to <strong>"how much more resistant are safety-trained weights than prompt-level guardrails, and where does that resistance break?"</strong> As before, I'll publish the method and aggregate results, not the working prompts.</p>
-
-    <h3>What the update adds</h3>
-    <p>Part 1 was about fitting a model to the hardware. Part 2 is about fitting the hardware to the model's architecture: understanding which tensors are dense and which are sparse, placing each in the memory tier that matches its access pattern, and reasoning about speed from first principles (bandwidth ÷ bytes per token) rather than by trial and error. The result is models with up to 13× the parameters of Part 1's, and weights about four times larger than the GPU, running privately at interactive speed, driven by an agentic coding client, with the same "nothing leaves the network" guarantee as the original setup.</p>
-  </section>
-
-  <h2>How it maps to security work</h2>
-  <p>This sits at the intersection of three current security specializations. <strong>Self-hosting and ML-ops</strong>: running large models efficiently and privately on your own infrastructure, down to which tensor lives in which memory tier. <strong>AI red-teaming</strong>: understanding alignment failure modes, prompt injection, and where model guardrails actually live. And <strong>agent security</strong>: what changes when a model can act, not just answer. This project is hands-on grounding in all three.</p>
-
-</article>
-
-    <footer><a href="../index.html">← back to all projects</a></footer>
-
-  </div>
-  <script src="../site.js"></script>
+  <footer>← <a href="../index.html">back to all projects</a></footer>
+</div>
+  <div class="lightbox" id="lightbox">
+  <span class="x">✕</span>
+  <img id="lightbox-img" src="" alt="">
+</div>
+<script>
+  (function(){
+    var lb = document.getElementById('lightbox');
+    var lbImg = document.getElementById('lightbox-img');
+    document.querySelectorAll('.shots img').forEach(function(img){
+      img.addEventListener('click', function(){
+        lbImg.src = img.src;
+        lbImg.alt = img.alt;
+        lb.classList.add('open');
+      });
+    });
+    lb.addEventListener('click', function(){ lb.classList.remove('open'); });
+    document.addEventListener('keydown', function(e){
+      if(e.key === 'Escape') lb.classList.remove('open');
+    });
+  })();
+</script>
 </body>
 </html>
