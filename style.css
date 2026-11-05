@@ -178,3 +178,41 @@ footer a:hover{color:var(--accent)}
 .video .yt:hover{background:var(--bg-card-hover)}
 .video .yt:hover .play{background:var(--accent);color:var(--bg)}
 .video .yt small{color:var(--text-faint);font-size:11.5px}
+
+/* ============================================================
+   ADDITIONS — long-form technical project pages
+   (tables, sub-headings, numbered lists, diagrams, update blocks)
+   ============================================================ */
+
+/* fix: code inside <pre> must not get the inline-code box */
+.doc pre code{background:none;border:0;padding:0;border-radius:0;color:inherit;font-size:inherit}
+
+/* sub-headings + numbered lists */
+.doc h3{font-family:var(--mono);font-weight:600;font-size:17px;margin:36px 0 12px;color:var(--text);letter-spacing:-.2px}
+.doc ol{color:var(--text-dim);font-size:16.5px;margin:0 0 16px 22px;line-height:1.7}
+.doc em{color:var(--text)}
+
+/* tables — always wrap in <div class="table-wrap"> so they scroll on phones */
+.doc .table-wrap{overflow-x:auto;margin:0 0 20px;border:1px solid var(--line);border-radius:8px;
+  -webkit-overflow-scrolling:touch}
+.doc table{width:100%;border-collapse:collapse;font-size:14.5px;line-height:1.55}
+.doc th,.doc td{padding:10px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+.doc th{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--magenta);
+  background:var(--bg-card);letter-spacing:.5px}
+.doc td{color:var(--text-dim)}
+.doc tbody tr:last-child td{border-bottom:0}
+.doc tbody tr:hover td{background:rgba(136,192,208,.04)}
+.doc td code{font-size:12.5px;white-space:nowrap}
+@media(max-width:560px){.doc table{font-size:13.5px}.doc th,.doc td{padding:9px 11px}}
+
+/* inline SVG diagram */
+.doc figure.diagram{margin:8px 0 26px}
+.doc figure.diagram .diagram-scroll{overflow-x:auto;margin-bottom:8px;-webkit-overflow-scrolling:touch}
+.doc figure.diagram svg{display:block;width:100%;min-width:600px;height:auto;background:var(--bg-card);
+  border:1px solid var(--line);border-radius:8px}
+.doc figure.diagram .vid-cap{margin:0}
+
+/* update block: a dated divider inside a project page */
+.doc section.update{margin-top:56px;padding:44px 0 0}
+.doc section.update > .tag{margin-bottom:10px}
+.doc section.update > .tag + h2{margin-top:0}
