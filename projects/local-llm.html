@@ -1,12 +1,21 @@
-<!-- ============================================================
-     PROJECT: Self-Hosted Offline LLM Lab
-     Paste inside your project page's <div class="wrap narrow">.
-     Needs the additions at the bottom of the patched style.css
-     (table-wrap, h3, ol, figure.diagram, .update section).
-     ============================================================ -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Self-Hosted Offline LLM Lab — Local Inference &amp; MoE Offload // submerse</title>
+  <meta name="description" content="A private LLM lab on one RTX 4090: a quantized 24B model fully on GPU, then 100B+ mixture-of-experts models split across VRAM, RAM and NVMe, served over the LAN.">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="wrap narrow">
+
+    <nav><a href="../index.html">← back</a></nav>
+
 <article class="doc">
 
   <header>
+    <div class="tag">project 03 · ml-ops &amp; local inference &amp; ai red-team</div>
     <h1>Self-Hosted Offline LLM Lab</h1>
     <div class="meta">
       <span>llama.cpp</span>
@@ -44,7 +53,7 @@
     <li><strong>Air-gap-friendly.</strong> The same setup runs with no internet at all, which matters for sensitive analysis work.</li>
   </ul>
 
-  <h2>Part 1: A dense 24B model, fully on one GPU</h2>
+  <h2>Part 1 — A Dense 24B Model, Fully on One GPU</h2>
   <p>The first model runs on llama.cpp's server, built from source with the CUDA backend. The launch script is the whole config in one place:</p>
 <pre><code>#!/bin/bash
 cd ~/llama.cpp/build/bin || exit
@@ -86,7 +95,7 @@ cd ~/llama.cpp/build/bin || exit
   <!-- ======================= UPDATE ======================= -->
   <section class="update" id="update-moe">
     <div class="tag">Update · November 2026</div>
-    <h2>Part 2: Running 100B+ models with mixture-of-experts offload</h2>
+    <h2>Part 2 — Running 100B+ Models with Mixture-of-Experts Offload</h2>
 
     <h3>The 24 GB wall</h3>
     <p>Part 1 hit a hard limit. A dense model reads every weight for every generated token, so it has to sit in fast memory to run at a usable speed. On a 24 GB card that tops out around 24–32B parameters. Anything bigger spills into system RAM, and that's where dense models fall apart, because token generation is a memory-bandwidth problem:</p>
@@ -102,7 +111,7 @@ cd ~/llama.cpp/build/bin || exit
     </div>
     <p>So a dense 100B+ model on this machine technically runs, but at a speed nobody would use. More RAM doesn't help: the bottleneck is bandwidth, not capacity.</p>
 
-    <h3>Mixture-of-experts: huge models that only use a sliver of themselves</h3>
+    <h3>Mixture-of-experts — huge models that only use a sliver of themselves</h3>
     <p>A <strong>mixture-of-experts (MoE)</strong> model replaces each feed-forward block with hundreds of small "expert" networks plus a router. For every token, the router picks only a handful of experts per layer and the rest sit idle. The models in this update all activate roughly 5% of their weights per token:</p>
     <div class="table-wrap">
       <table>
@@ -187,7 +196,7 @@ cd ~/llama.cpp/build/bin || exit
         </g>
       </svg>
       </div>
-      <figcaption class="vid-cap">Pi on the workstation talks to whichever engine is running. Dense, every-token work stays in VRAM; the sparse bulk of the model lives in RAM.</figcaption>
+      <figcaption class="vid-cap">fig. 1 — serving architecture. Pi on the workstation talks to whichever engine is running. Dense, every-token work stays in VRAM; the sparse bulk of the model lives in RAM.</figcaption>
     </figure>
     <div class="table-wrap">
       <table>
@@ -201,7 +210,7 @@ cd ~/llama.cpp/build/bin || exit
     </div>
     <p>Only one engine runs at a time, on the same port and with the same API key. That's not a limitation I worked around; it's a consequence of the memory budget. Each of these models wants most of the 96 GB, so two can't be resident together. Because both engines speak the same OpenAI-compatible API, the client never needs to know which one is serving.</p>
 
-    <h3>Engine 1: llama.cpp hybrid offload (gpt-oss-120b)</h3>
+    <h3>Engine 1 — llama.cpp hybrid offload (gpt-oss-120b)</h3>
     <p>Not every tensor in an MoE model is sparse. Attention, embeddings, normalization and the router run on <em>every</em> token; only the routed experts are sparse. That gives a natural split:</p>
     <div class="table-wrap">
       <table>
@@ -251,7 +260,7 @@ cd ~/llama.cpp/build/bin || exit
     </ol>
     <p>An equivalent, finer-grained way to make the same split is to pin tensors with a regex: <code>-ot ".ffn_.*_exps.=CPU"</code>. <code>--n-cpu-moe</code> is the simpler interface; <code>-ot</code> gives per-tensor control.</p>
 
-    <h3>Engine 2: PolyStrata, frequency-aware expert caching</h3>
+    <h3>Engine 2 — PolyStrata, frequency-aware expert caching</h3>
     <p>llama.cpp splits at the level of whole layers: "the experts of layers 0–N go to RAM." <strong>PolyStrata</strong> (an open-source project built on Niko1221's Strata engine) works at the level of <strong>individual experts</strong>, based on how often each one is actually used. Expert usage isn't uniform, so if the hot experts sit in the fastest tier, most of each token's work hits GDDR6X even though the model is several times larger than the card. It's a cache hierarchy applied to model weights.</p>
     <p>PolyStrata runs these three models through two engines and can switch between them while the server is running:</p>
     <div class="table-wrap">
@@ -294,7 +303,7 @@ cd ~/llama.cpp/build/bin || exit
       </table>
     </div>
 
-    <h3>Client: Pi as a terminal coding agent</h3>
+    <h3>Client — Pi as a terminal coding agent</h3>
     <p>The server runs headless. I work from my workstation through <strong>Pi</strong>, an open-source, minimal terminal coding agent. It ships with four tools (read, write, edit, bash) and leaves the rest to extensions and configuration, which suits this project: it's a thin, inspectable layer, not a black box wrapped around the model.</p>
 <pre><code>npm install -g @earendil-works/pi-coding-agent</code></pre>
     <p>Custom endpoints go in <code>~/.pi/agent/models.json</code>. Since only one engine runs at a time on the same address, a single provider covers all of them:</p>
@@ -316,7 +325,7 @@ cd ~/llama.cpp/build/bin || exit
 }</code></pre>
     <p>The model ID is effectively a label: the engine that's running decides what actually answers. The full loop is <strong>Pi on the workstation → LAN → llama-server or PolyStrata on the 4090 box → back</strong>. No prompt, file or line of code leaves the network at any point, which extends Part 1's guarantee from chat to a real agentic coding workflow.</p>
 
-    <h3>Agent security: a new attack surface</h3>
+    <h3>Agent security — a new attack surface</h3>
     <p>Giving a model a shell changes the threat model. A chat model can only produce text; Pi can read and edit files and run bash commands. That means:</p>
     <ul>
       <li><strong>Prompt injection becomes command execution.</strong> A malicious instruction hidden in a README, a dependency or a code comment that the agent reads could turn into a shell command. This connects directly to the red-team work: Part 1 showed how cheaply the system layer moves model behaviour, and here the consequence is an action, not just text.</li>
@@ -370,4 +379,14 @@ cd ~/llama.cpp/build/bin || exit
     <p>Part 1 was about fitting a model to the hardware. Part 2 is about fitting the hardware to the model's architecture: understanding which tensors are dense and which are sparse, placing each in the memory tier that matches its access pattern, and reasoning about speed from first principles (bandwidth ÷ bytes per token) rather than by trial and error. The result is models with up to 13× the parameters of Part 1's, and weights about four times larger than the GPU, running privately at interactive speed, driven by an agentic coding client, with the same "nothing leaves the network" guarantee as the original setup.</p>
   </section>
 
+  <h2>How it maps to security work</h2>
+  <p>This sits at the intersection of three current security specializations. <strong>Self-hosting and ML-ops</strong>: running large models efficiently and privately on your own infrastructure, down to which tensor lives in which memory tier. <strong>AI red-teaming</strong>: understanding alignment failure modes, prompt injection, and where model guardrails actually live. And <strong>agent security</strong>: what changes when a model can act, not just answer. This project is hands-on grounding in all three.</p>
+
 </article>
+
+    <footer><a href="../index.html">← back to all projects</a></footer>
+
+  </div>
+  <script src="../site.js"></script>
+</body>
+</html>
