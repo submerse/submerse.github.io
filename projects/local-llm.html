@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Self-Hosted Offline LLM Lab — Local Inference &amp; MoE Offload // submerse</title>
-  <meta name="description" content="A private LLM lab on one RTX 4090: a quantized 24B model fully on GPU, then 100B+ mixture-of-experts models split across VRAM, RAM and NVMe, served over the LAN.">
+  <meta name="description" content="A private LLM lab on one RTX 4090: a quantized 24B model fully on GPU, then 100B+ mixture-of-experts models split across VRAM, RAM and NVMe, reachable from anywhere through an end-to-end-encrypted tunnel with no open ports at home.">
   <link rel="stylesheet" href="../style.css">
 </head>
 <body>
@@ -25,11 +25,15 @@
       <span>GPU offload</span>
       <span>Pi agent</span>
       <span>AI red-team</span>
+      <span>Open WebUI</span>
+      <span>WireGuard</span>
+      <span>Caddy</span>
+      <span>fail2ban</span>
     </div>
   </header>
 
   <h2>Overview</h2>
-  <p>A private language-model lab running entirely on my own hardware, served over my LAN with no third-party API in the path. It started as a 24-billion-parameter model fitted onto a single RTX 4090 through quantization (Part 1). The November 2026 update pushes the same machine to 117–320-billion-parameter <strong>mixture-of-experts</strong> models by splitting them across VRAM, system RAM and NVMe, and adds a terminal coding agent as the client (Part 2).</p>
+  <p>A private language-model lab running entirely on my own hardware, served over my LAN with no third-party API in the path. It started as a 24-billion-parameter model fitted onto a single RTX 4090 through quantization (Part 1). The November 2026 update pushes the same machine to 117–320-billion-parameter <strong>mixture-of-experts</strong> models by splitting them across VRAM, system RAM and NVMe, and adds a terminal coding agent as the client (Part 2). Part 3 makes the lab reachable from anywhere, with a browser front end, through a WireGuard tunnel and a relay that only ever sees encrypted traffic, without opening a single port at home.</p>
   <p>The point is twofold: the systems engineering of efficient local inference, and a controlled environment for studying model behaviour without sending anything to a cloud provider.</p>
 
   <div class="table-wrap">
@@ -237,7 +241,7 @@ cd ~/llama.cpp/build/bin || exit
   --threads 16 \
   --host 0.0.0.0 \
   --port 8080 \
-  --api-key "$LLM_API_KEY"</code></pre>
+  --api-key-file ~/.config/llm/api-key</code></pre>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Flag</th><th>What it does</th></tr></thead>
@@ -247,7 +251,7 @@ cd ~/llama.cpp/build/bin || exit
           <tr><td><code>-fa on</code></td><td>Flash attention: smaller attention buffers, so more VRAM is left for experts.</td></tr>
           <tr><td><code>--ubatch-size 2048</code></td><td>The opposite choice from Part 1. With experts in RAM, large micro-batches let llama.cpp stream expert weights to the GPU once per chunk, which speeds up prompt processing considerably.</td></tr>
           <tr><td><code>--threads 16</code></td><td>One per physical core of the 9950X3D. The CPU computes the RAM-resident experts during generation, so thread count directly affects speed.</td></tr>
-          <tr><td><code>--api-key</code></td><td>Authentication on the LAN endpoint, read from an environment variable rather than hardcoded.</td></tr>
+          <tr><td><code>--api-key-file</code></td><td>Authentication on the LAN endpoint, with the key read from a file rather than passed on the command line, where <code>ps</code> would show it to every local user.</td></tr>
         </tbody>
       </table>
     </div>
@@ -331,12 +335,11 @@ cd ~/llama.cpp/build/bin || exit
       <li><strong>Prompt injection becomes command execution.</strong> A malicious instruction hidden in a README, a dependency or a code comment that the agent reads could turn into a shell command. This connects directly to the red-team work: Part 1 showed how cheaply the system layer moves model behaviour, and here the consequence is an action, not just text.</li>
       <li><strong>An uncensored model with tool access</strong> removes one more layer of defence, so when I pair one with Pi, I treat it as untrusted code execution.</li>
     </ul>
-    <!-- VERIFY: keep only the mitigations you actually use -->
-    <p>The rules I run it under:</p>
+    <p>When Pi runs on the server itself, which is how I use it day to day, it doesn't ask before running a command, so the control is a sandbox rather than review. A small launcher runs it under bubblewrap:</p>
     <ul>
-      <li>Pi works inside a container with only the project directory mounted, as a non-root user.</li>
-      <li>No credentials, SSH keys or cloud tokens in the agent's environment.</li>
-      <li>Shell commands get reviewed before they run on anything that matters.</li>
+      <li>Fresh namespaces for everything (<code>--unshare-all</code>). The system is mounted read-only and my home directory is replaced by an empty one, so SSH keys, tokens and browser data aren't even visible.</li>
+      <li>Only the current project folder is writable, and the launcher refuses to start from my home directory or <code>/</code>.</li>
+      <li>The environment is cleared and there's no network: the only way out is a Unix socket bridged to the model's port. Checked from inside: loopback only, no DNS.</li>
     </ul>
 
     <h3>Results</h3>
@@ -359,15 +362,14 @@ cd ~/llama.cpp/build/bin || exit
     <ul>
       <li><strong>Prompt processing is the weak spot.</strong> Generation touches a few experts per token, but a long prompt touches nearly all of them. Large micro-batches and chunked prefill soften this but don't remove it, so long-document work feels it more than chat does.</li>
       <li><strong>Memory capacity is still a hard limit.</strong> Sparsity doesn't let a 200 GB model run in 120 GB at usable speed; it only makes slow memory fast enough to be useful. The 284–320B models fit only because they're quantized to about 2–3 bits, which costs some quality.</li>
-      <li><strong>RAM speed matters more than GPU speed here.</strong> Faster DDR5 or more memory channels would raise generation speed more than a faster GPU would.</li
+      <li><strong>RAM speed matters more than GPU speed here.</strong> Faster DDR5 or more memory channels would raise generation speed more than a faster GPU would.</li>
     </ul>
 
     <h3>Security changes made in this update</h3>
     <p>Reviewing the Part 1 config showed the endpoint was bound to <code>0.0.0.0</code> with <strong>no authentication</strong>: anything on the LAN could query the model, including a compromised IoT device. For a project whose whole point is data control, that was a real gap.</p>
-    <!-- VERIFY: keep only what you've actually configured -->
     <ul>
-      <li>Both engines now require an API key, loaded from an environment variable and never committed to a repository. The only other copy lives in Pi's local config on the workstation.</li>
-      <li>A host firewall rule allows port 8080 only from my workstation's address.</li>
+      <li>Both engines now require an API key, read from a file only my user can read (<code>--api-key-file</code> for llama.cpp; PolyStrata gets it through an environment variable set from that file), so it never appears on a command line, where <code>ps</code> would show it to every local user.</li>
+      <li>Part 3 took the fix further: the engines now listen on loopback only, the LAN firewall rule for port 8080 is gone, and the only way in is through an authenticated reverse proxy (see below).</li>
     </ul>
 
     <h3>Extending the red-team work</h3>
@@ -378,8 +380,260 @@ cd ~/llama.cpp/build/bin || exit
     <p>Part 1 was about fitting a model to the hardware. Part 2 is about fitting the hardware to the model's architecture: understanding which tensors are dense and which are sparse, placing each in the memory tier that matches its access pattern, and reasoning about speed from first principles (bandwidth ÷ bytes per token) rather than by trial and error. The result is models with up to 13× the parameters of Part 1's, and weights about four times larger than the GPU, running privately at interactive speed, driven by an agentic coding client, with the same "nothing leaves the network" guarantee as the original setup.</p>
   </section>
 
+
+  <!-- ======================= UPDATE 3 ======================= -->
+  <section class="update" id="update-remote">
+    <div class="tag">Update · November 2026</div>
+    <h2>Part 3 — Remote Access: Open WebUI Through a Tunnel, With No Open Ports</h2>
+
+    <h3>The goal</h3>
+    <p>Parts 1 and 2 only worked on my own network. I wanted the lab from anywhere: a browser chat interface on my phone, and the same OpenAI-compatible API for Pi on a laptop. Three constraints:</p>
+    <ul>
+      <li><strong>No open ports at home.</strong> Nothing forwarded on my router, and my home IP never published.</li>
+      <li><strong>The relay doesn't get to read anything.</strong> Something with a public address has to sit in the middle, but it should only ever see ciphertext.</li>
+      <li><strong>The engines stay unexposed.</strong> They listen on the machine they run on and nowhere else.</li>
+    </ul>
+    <p>The off-the-shelf answer, Cloudflare Tunnel, fails the second constraint: it terminates TLS at Cloudflare's edge, so a third party would see every prompt. That defeats the point of this project, so I built the path myself.</p>
+
+    <h3>Architecture</h3>
+    <figure class="diagram">
+      <div class="diagram-scroll">
+      <svg viewBox="0 0 720 340" role="img" aria-labelledby="remote-title remote-desc" xmlns="http://www.w3.org/2000/svg">
+        <title id="remote-title">Remote access architecture</title>
+        <desc id="remote-desc">A client anywhere connects over HTTPS on port 443 to a VPS. nginx on the VPS forwards the still-encrypted TLS stream, plus a PROXY protocol header with the client's address, through a WireGuard tunnel that the home PC dials out to. Caddy on the PC terminates TLS and routes /v1 requests with a valid API key to the inference engine on 127.0.0.1:8080, and everything else to Open WebUI on 127.0.0.1:3000, which itself calls the engine. fail2ban on the PC reads Caddy's log and pushes bans back to the VPS firewall over SSH through the tunnel.</desc>
+        <defs>
+          <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent-dim)"/>
+          </marker>
+        </defs>
+        <g style="font-family:var(--mono)">
+          <!-- client -->
+          <rect x="12" y="40" width="136" height="84" rx="8" style="fill:var(--bg);stroke:var(--line)"/>
+          <text x="26" y="62" style="fill:var(--magenta);font-size:11px;letter-spacing:1px">CLIENT</text>
+          <text x="26" y="86" style="fill:var(--text);font-size:13px">browser · Pi</text>
+          <text x="26" y="108" style="fill:var(--text-faint);font-size:11px">any network</text>
+          <!-- client to vps -->
+          <line x1="150" y1="82" x2="188" y2="82" marker-end="url(#arr3)" style="stroke:var(--accent-dim);stroke-width:1.5"/>
+          <text x="169" y="72" text-anchor="middle" style="fill:var(--text-dim);font-size:10px">HTTPS</text>
+          <text x="169" y="98" text-anchor="middle" style="fill:var(--text-faint);font-size:10px">:443</text>
+          <!-- vps -->
+          <rect x="192" y="28" width="150" height="116" rx="8" style="fill:var(--bg);stroke:var(--line)"/>
+          <text x="206" y="50" style="fill:var(--magenta);font-size:11px;letter-spacing:1px">VPS</text>
+          <text x="206" y="74" style="fill:var(--text);font-size:13px">nginx stream</text>
+          <text x="206" y="94" style="fill:var(--text-dim);font-size:11.5px">TLS passthrough</text>
+          <text x="206" y="112" style="fill:var(--text-dim);font-size:11.5px">+ PROXY header</text>
+          <text x="206" y="132" style="fill:var(--text-faint);font-size:11px">offline fallback</text>
+          <!-- vps to pc -->
+          <line x1="344" y1="82" x2="426" y2="82" marker-end="url(#arr3)" style="stroke:var(--accent-dim);stroke-width:1.5"/>
+          <text x="385" y="72" text-anchor="middle" style="fill:var(--text-dim);font-size:10px">WireGuard</text>
+          <text x="385" y="98" text-anchor="middle" style="fill:var(--text-faint);font-size:10px">outbound</text>
+          <!-- pc -->
+          <rect x="414" y="12" width="294" height="316" rx="10" style="fill:none;stroke:var(--line);stroke-dasharray:5 4"/>
+          <text x="428" y="34" style="fill:var(--magenta);font-size:11px;letter-spacing:1px">HOME PC · RTX 4090</text>
+          <rect x="430" y="46" width="262" height="72" rx="8" style="fill:var(--bg);stroke:var(--accent-dim)"/>
+          <text x="561" y="74" text-anchor="middle" style="fill:var(--accent);font-size:14px">Caddy · TLS ends here</text>
+          <text x="561" y="96" text-anchor="middle" style="fill:var(--text-faint);font-size:11px">10.8.0.2:443 · JSON access log</text>
+          <!-- routes -->
+          <line x1="490" y1="118" x2="490" y2="146" marker-end="url(#arr3)" style="stroke:var(--accent-dim);stroke-width:1.5"/>
+          <line x1="632" y1="118" x2="632" y2="146" marker-end="url(#arr3)" style="stroke:var(--accent-dim);stroke-width:1.5"/>
+          <text x="482" y="138" text-anchor="end" style="fill:var(--text-faint);font-size:10.5px">/v1/*</text>
+          <text x="624" y="138" text-anchor="end" style="fill:var(--text-faint);font-size:10.5px">/*</text>
+          <!-- engine -->
+          <rect x="430" y="150" width="120" height="86" rx="8" style="fill:var(--bg);stroke:var(--line)"/>
+          <text x="444" y="174" style="fill:var(--accent);font-size:13px">engine</text>
+          <text x="444" y="196" style="fill:var(--text-dim);font-size:11.5px">127.0.0.1:8080</text>
+          <text x="444" y="216" style="fill:var(--text-faint);font-size:11px">needs API key</text>
+          <!-- open webui -->
+          <rect x="572" y="150" width="120" height="86" rx="8" style="fill:var(--bg);stroke:var(--line)"/>
+          <text x="586" y="174" style="fill:var(--accent);font-size:13px">Open WebUI</text>
+          <text x="586" y="196" style="fill:var(--text-dim);font-size:11.5px">127.0.0.1:3000</text>
+          <text x="586" y="216" style="fill:var(--text-faint);font-size:11px">Docker · logins</text>
+          <line x1="570" y1="193" x2="554" y2="193" marker-end="url(#arr3)" style="stroke:var(--accent-dim);stroke-width:1.5"/>
+          <!-- fail2ban -->
+          <rect x="430" y="256" width="262" height="56" rx="8" style="fill:var(--bg);stroke:var(--line)"/>
+          <text x="444" y="280" style="fill:var(--accent);font-size:13px">fail2ban</text>
+          <text x="444" y="300" style="fill:var(--text-faint);font-size:11px">reads Caddy log → bans on the VPS</text>
+          <polyline points="428,284 267,284 267,150" marker-end="url(#arr3)" style="fill:none;stroke:var(--accent-dim);stroke-width:1.5;stroke-dasharray:4 3"/>
+          <text x="278" y="276" style="fill:var(--text-dim);font-size:10px">ban push · SSH</text>
+          <text x="278" y="300" style="fill:var(--text-faint);font-size:10px">over the tunnel</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption class="vid-cap">fig. 2 — remote access. The VPS only forwards encrypted bytes; TLS ends on the PC. Nothing at home accepts connections from the internet, because the PC dials out. Detection runs where requests are readable (the PC), enforcement where the real addresses are (the VPS).</figcaption>
+    </figure>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Hop</th><th>Component</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>Internet → VPS</td><td>nginx <code>stream</code> (layer 4)</td><td>Accepts HTTPS on 443 and forwards the raw TLS bytes without decrypting them. Adds a PROXY protocol header with the client's real address. If the PC is unreachable, falls back to a static offline page.</td></tr>
+          <tr><td>VPS → home</td><td>WireGuard</td><td>The PC dials out to the VPS and keeps the tunnel open (keepalive every 25 s), so nothing at home listens on the internet. Split tunnel: only the 10.8.0.0/24 tunnel subnet goes through it.</td></tr>
+          <tr><td>Home PC</td><td>Caddy</td><td>Listens only on the tunnel address. TLS ends here, with a Let's Encrypt certificate obtained through the passthrough (TLS-ALPN-01), so the certificate's private key never leaves the PC.</td></tr>
+          <tr><td>Routing</td><td>Caddy</td><td><code>/v1/*</code> requires the API key as a bearer token (401 otherwise) and goes to the engine on <code>127.0.0.1:8080</code>. Everything else goes to Open WebUI.</td></tr>
+          <tr><td>Front end</td><td>Open WebUI</td><td>Runs in Docker on <code>127.0.0.1:3000</code> and talks to the engine over loopback with the same key.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The VPS side is a few lines of nginx:</p>
+<pre><code>stream {
+    upstream pc_https {
+        server 10.8.0.2:443 max_fails=1 fail_timeout=10s;   # the PC, over WireGuard
+        server 127.0.0.1:8443 backup;                       # offline page
+    }
+    server {
+        listen 443;
+        proxy_pass pc_https;
+        proxy_protocol on;
+        proxy_connect_timeout 3s;
+    }
+}</code></pre>
+    <p>The PC side is the whole Caddyfile. A setup script writes the key in, and the file is readable only by root and the <code>caddy</code> user:</p>
+<pre><code>{
+    admin off
+    auto_https disable_redirects
+    servers {
+        listener_wrappers {
+            proxy_protocol {
+                allow 10.8.0.1/32
+            }
+            tls
+        }
+    }
+}
+
+llm.example.dev {
+    bind 10.8.0.2
+    tls {
+        issuer acme {
+            disable_http_challenge
+        }
+    }
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+
+    @unauthorized {
+        path /v1/*
+        not header Authorization "Bearer &lt;API_KEY&gt;"
+    }
+    handle @unauthorized {
+        respond 401
+    }
+    handle /v1/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+}</code></pre>
+
+    <h3>Locking down the PC</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Engines on loopback</td><td>Moved from <code>0.0.0.0</code> to <code>127.0.0.1</code>. The API key comes from a file only my user can read, never from the command line.</td></tr>
+          <tr><td>Host firewall</td><td>nftables with an input policy of drop. The only rule this update adds accepts TCP 443 on the WireGuard interface from the VPS's tunnel address. The old LAN rule for port 8080 is gone; nothing listens on the LAN anymore.</td></tr>
+          <tr><td>Open WebUI</td><td>Loopback only, and signups disabled, so accounts exist only if I create them. Models are private by default, with access granted per model.</td></tr>
+          <tr><td>Caddy</td><td>Binds only the tunnel address, with its admin API off. systemd starts it only after the tunnel is up, since the address it binds doesn't exist before that.</td></tr>
+          <tr><td>Audit</td><td>A listening-socket and firewall audit on both machines afterwards: nothing reachable beyond the intended ports.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>One finding from the Open WebUI setup: settings like <code>ENABLE_SIGNUP</code> are read from the environment only on first start and then stored in its database, which wins from then on. My "signups disabled" flag was silently ignored, and I only found out because a test registration went through. Disabling signups in the admin panel fixed it. The lesson: test the control, don't trust the flag.</p>
+
+    <h3>Real client addresses: PROXY protocol</h3>
+    <p>Passthrough has a side effect. Every connection Caddy sees comes from the VPS's tunnel address, so every line in the access log said <code>10.8.0.1</code>. That's useless for auditing and fatal for banning: banning that address would ban everyone, tunnel included.</p>
+    <p>The fix is the PROXY protocol. nginx prepends one plain-text line with the original client address to each connection, and Caddy's <code>proxy_protocol</code> listener reads it, but only from <code>10.8.0.1</code>, so nobody else can claim an address. Two details matter:</p>
+    <ul>
+      <li><strong>Order.</strong> The header arrives before the TLS handshake, so the PROXY listener has to sit in front of the <code>tls</code> one.</li>
+      <li><strong>Both sides switch together.</strong> If Caddy doesn't expect the header, it reads <code>PROXY TCP4 …</code> where a TLS ClientHello should be and drops the connection.</li>
+    </ul>
+
+    <h3>Brute-force protection, split across two machines</h3>
+    <p>What's exposed now is the Open WebUI login and the API. A standard fail2ban setup doesn't fit this topology, because no single machine has both halves of the picture:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Machine</th><th>Can see</th><th>Can't see</th></tr></thead>
+        <tbody>
+          <tr><td>VPS</td><td>The real source address of every packet, and it can drop them before they reach anything</td><td>Which requests failed: the traffic is encrypted end to end</td></tr>
+          <tr><td>PC</td><td>Decrypted requests, status codes, failed logins</td><td>A useful source address at the packet level: everything arrives from the tunnel</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>So detection runs on the PC and enforcement on the VPS:</p>
+    <ol>
+      <li><strong>Detect.</strong> fail2ban on the PC reads Caddy's JSON log for failed logins (<code>POST /api/v1/auths/signin</code> answered with a 4xx) and for <code>/v1</code> requests rejected for a bad key. Ten failures in ten minutes earn a one-hour ban.</li>
+      <li><strong>Push.</strong> The ban action connects to the VPS over SSH, through the tunnel, as a dedicated account whose key can do exactly one thing.</li>
+      <li><strong>Validate.</strong> On the VPS, that one thing is a script that accepts only <code>ban &lt;ipv4&gt; &lt;seconds&gt;</code> or <code>unban &lt;ipv4&gt;</code>, checks every field before touching the firewall, and rejects anything else. I tested it with injection strings like <code>1.2.3.4;id</code> and <code>$(id)</code>.</li>
+      <li><strong>Enforce.</strong> Bans go into an nftables set with a timeout on each entry, dropping only TCP 80 and 443.</li>
+    </ol>
+<pre><code># /var/lib/f2bpush/.ssh/authorized_keys on the VPS
+from="10.8.0.2",restrict,command="sudo -n /usr/local/sbin/f2b-nft" ssh-ed25519 AAAA… f2b-push
+
+# the ban set, created on first use
+table inet f2b {
+    set banned { type ipv4_addr; flags timeout; }
+    chain input {
+        type filter hook input priority -10; policy accept;
+        tcp dport { 80, 443 } ip saddr @banned drop
+    }
+}</code></pre>
+    <p>The key only works from the tunnel address, <code>restrict</code> removes shells, terminals and forwarding, and the forced command runs no matter what the client asks for. sudo allows that one script and nothing else, with no arguments. The narrow drop rule is deliberate: if I lock myself out from home, the ban can't also cut WireGuard or SSH from the same address, and every ban expires on its own even if the unban never arrives.</p>
+    <p>The filter matches the client address Caddy took from the PROXY header, not <code>X-Forwarded-For</code> or anything else a client controls. Caddy also escapes quotes inside logged header values, so text smuggled into a header, like a fake client address or status, can't form a match. Nobody can get someone else banned that way; I tested it with forged fields.</p>
+
+    <h3>Verification</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Test</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><code>/v1/models</code> without a key</td><td>401</td></tr>
+          <tr><td><code>/v1/models</code> with the key</td><td>200</td></tr>
+          <tr><td>Client address in Caddy's log, request through the VPS</td><td>The original client address, not <code>10.8.0.1</code></td></tr>
+          <tr><td>Test ban of <code>192.0.2.1</code> (a reserved documentation address) through fail2ban</td><td>Appears in the VPS's ban set with a 1-hour timeout</td></tr>
+          <tr><td>Filter against a real failed login</td><td>1 match in 105 log lines: the failed login and nothing else</td></tr>
+          <tr><td>Injection strings sent to the ban script</td><td>Rejected before the firewall is touched</td></tr>
+          <tr><td>Tunnel down</td><td>Visitors get the offline page (503) instead of a timeout</td></tr>
+          <tr><td>Listening sockets and firewall rules on both machines</td><td>Nothing reachable beyond the intended ports</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Debugging: status 000 and an empty log</h3>
+    <p>The first end-to-end test after switching on the PROXY protocol failed at the TLS layer (<code>curl</code> status 000), and Caddy logged nothing at all. Working through it one layer at a time:</p>
+    <ul>
+      <li><strong>Test with the right name.</strong> Curling the tunnel IP directly sends no SNI and fails for its own reasons. <code>curl --resolve llm.example.dev:443:10.8.0.2</code> sends the real hostname to a chosen address.</li>
+      <li><strong>Take nginx out of the loop.</strong> <code>curl --haproxy-protocol</code> sends the same header nginx does, straight to Caddy.</li>
+      <li><strong>Two separate faults turned up.</strong> Caddy couldn't write to its log directory and refused to start; letting systemd own the directory (<code>LogsDirectory=</code>) creates it with the right owner. And with debug logging on, Caddy finally said <em>"first record does not look like a TLS handshake"</em>: the PROXY header was reaching the TLS parser, because the Caddyfile on disk was still the version without the PROXY listener. The updated one had been written but never deployed.</li>
+    </ul>
+    <p>The lesson I'm keeping: check the configuration that's actually loaded (<code>caddy adapt</code> shows whether the listener is there), not the file you believe you deployed.</p>
+
+    <h3>Incident: two leaked secrets, rotated</h3>
+    <p>Two secrets were exposed during the build: the VPS's WireGuard private key, while I was copying configuration between machines, and the API key, which Caddy's debug output printed in full, because its config dump includes the header matcher, bearer token and all. Both were rotated the same day:</p>
+    <ul>
+      <li><strong>API key.</strong> The first step was finding every copy. The engines read the key from a file at start, so a restart was enough, and the Caddyfile was regenerated. Open WebUI was the surprise: like the signup setting, it keeps its own copy in its database and ignores the environment after first start, so the new key had to go in through its admin panel.</li>
+      <li><strong>WireGuard.</strong> A new keypair on the VPS, applied live without the private key ever appearing on screen or on a command line, then the PC's peer entry updated. The tunnel was down for a few minutes, and the offline page covered it.</li>
+    </ul>
+    <p>Takeaways: debug logging is a disclosure channel, and before rotating a secret you need a complete list of where it lives, including copies an application quietly keeps for itself.</p>
+
+    <h3>Does this break "nothing leaves the network"?</h3>
+    <p>Partly, so it's worth being precise. In remote use, prompts do cross the internet and a rented server, but only as TLS ciphertext that's decrypted on my PC; the VPS just forwards it. The engines themselves still have no internet access: they bind loopback, and PolyStrata runs with its downloads and outbound features switched off. And the original mode is one command away: stop the tunnel, and the lab is offline again.</p>
+
+    <h3>Limits</h3>
+    <ul>
+      <li><strong>The VPS is still trusted for identity.</strong> DNS points at it, so whoever controls it could get a certificate for the hostname and sit in the middle; it even holds one already, for the offline page. Passthrough protects against a curious provider and against logs, not against a compromised VPS. A CAA record pinned to the PC's ACME account would narrow that, at the cost of the offline page's own certificate.</li>
+      <li><strong>The login page is on the internet.</strong> fail2ban slows guessing from one address; it doesn't stop an attacker with many. Strong, unique passwords carry the weight, and the stronger next step is to make the web UI reachable only through a client VPN.</li>
+      <li><strong>The hostname went public with the certificate.</strong> Certificate Transparency logs publish every hostname a public CA issues, and scanners watch them. Authentication has to be in place before the first certificate, not after.</li>
+      <li><strong>Bans live in memory on the VPS.</strong> A VPS reboot clears them, and the PC doesn't know. For one-hour bans that's acceptable.</li>
+      <li><strong>IPv4 only</strong>, matching what nginx listens on.</li>
+    </ul>
+
+    <h3>What the update adds</h3>
+    <p>Parts 1 and 2 were about making big models run. Part 3 is about exposing a service without exposing the machine: no inbound ports at home, TLS the relay can't read, least privilege at every step (loopback binds, a key that can run one script, sudo for one command), detection and enforcement each placed where they can actually work, and the unglamorous part: testing the controls, reading the logs, and rotating secrets when they leak.</p>
+  </section>
+
   <h2>How it maps to security work</h2>
-  <p>This sits at the intersection of three current security specializations. <strong>Self-hosting and ML-ops</strong>: running large models efficiently and privately on your own infrastructure, down to which tensor lives in which memory tier. <strong>AI red-teaming</strong>: understanding alignment failure modes, prompt injection, and where model guardrails actually live. And <strong>agent security</strong>: what changes when a model can act, not just answer. This project is hands-on grounding in all three.</p>
+  <p>This sits at the intersection of four current security specializations. <strong>Self-hosting and ML-ops</strong>: running large models efficiently and privately on your own infrastructure, down to which tensor lives in which memory tier. <strong>AI red-teaming</strong>: understanding alignment failure modes, prompt injection, and where model guardrails actually live. <strong>Agent security</strong>: what changes when a model can act, not just answer. And <strong>secure service exposure</strong>: publishing a private service through an untrusted relay with no open ports, least-privilege automation, and incident response when secrets leak. This project is hands-on grounding in all four.</p>
 
 </article>
 
